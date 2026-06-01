@@ -5,6 +5,7 @@ import { useOutletContext } from "react-router-dom"
 import type { ChatInputHandle } from "../../components/chat-ui/ChatInput"
 import { ChatNavbar } from "../../components/chat-ui/ChatNavbar"
 import { BrowserPanel } from "../../components/chat-ui/BrowserPanel"
+import { MarkdownSlideViewer } from "../../components/chat-ui/MarkdownSlideViewer"
 import { GitPanel } from "../../components/chat-ui/GitPanel"
 import { useAppDialog } from "../../components/ui/app-dialog"
 import { Card, CardContent } from "../../components/ui/card"
@@ -685,6 +686,11 @@ export function ChatPage() {
     toggleRightPanel(projectId, "browser")
   }, [projectId, toggleRightPanel])
 
+  const handleToggleSlidesPanel = useCallback(() => {
+    if (!projectId) return
+    toggleRightPanel(projectId, "slides")
+  }, [projectId, toggleRightPanel])
+
   const handleRunQuickAction = useCallback((command: string) => {
     if (!projectId) return
     const terminalId = addTerminal(projectId)
@@ -927,6 +933,7 @@ export function ChatPage() {
           rightPanel={activeRightPanel}
           onToggleGitPanel={projectId ? handleToggleGitPanel : undefined}
           onToggleBrowserPanel={projectId ? handleToggleBrowserPanel : undefined}
+          onToggleSlidesPanel={projectId ? handleToggleSlidesPanel : undefined}
           onOpenExternal={handleOpenExternal}
           onExportTranscript={state.activeChatId ? () => void state.handleShareChat(state.activeChatId) : undefined}
           canExportTranscript={Boolean(state.activeChatId) && !state.isExportingStandalone}
@@ -1093,9 +1100,11 @@ export function ChatPage() {
   ])
   const rightPanelContent = activeRightPanel === "browser" && projectId
     ? <BrowserPanel projectId={projectId} socket={state.socket} onClose={handleCloseRightSidebar} onRunQuickAction={handleRunQuickAction} />
-    : gitPanelContentProps
-      ? <ChatSidebarContent {...gitPanelContentProps} />
-      : null
+    : activeRightPanel === "slides" && projectId
+      ? <MarkdownSlideViewer projectId={projectId} socket={state.socket} onClose={handleCloseRightSidebar} />
+      : gitPanelContentProps
+        ? <ChatSidebarContent {...gitPanelContentProps} />
+        : null
 
   return (
     <div ref={layoutRootRef} className="flex-1 flex flex-col min-w-0 relative">

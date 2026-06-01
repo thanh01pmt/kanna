@@ -1,5 +1,5 @@
 import { type MouseEvent as ReactMouseEvent } from "react"
-import { Check, Flower, GitBranch, Globe, Loader2, Menu, MoreHorizontal, PanelLeft, PanelRight, SquarePen, Terminal, UserRoundPlus } from "lucide-react"
+import { Check, Flower, GitBranch, Globe, Loader2, Menu, MoreHorizontal, PanelLeft, PanelRight, Presentation, SquarePen, Terminal, UserRoundPlus } from "lucide-react"
 import type { EditorOpenSettings, EditorPreset, OpenExternalAction } from "@kanna/shared/protocol"
 import { Button } from "../ui/button"
 import { CardHeader } from "../ui/card"
@@ -98,9 +98,10 @@ interface Props {
   localPath?: string
   embeddedTerminalVisible?: boolean
   onToggleEmbeddedTerminal?: () => void
-  rightPanel?: "hidden" | "git" | "browser"
+  rightPanel?: "hidden" | "git" | "browser" | "slides"
   onToggleGitPanel?: () => void
   onToggleBrowserPanel?: () => void
+  onToggleSlidesPanel?: () => void
   onOpenExternal?: (action: OpenExternalAction, editor?: EditorOpenSettings) => void
   onExportTranscript?: () => void
   canExportTranscript?: boolean
@@ -129,6 +130,7 @@ export function ChatNavbar({
   rightPanel = "hidden",
   onToggleGitPanel,
   onToggleBrowserPanel,
+  onToggleSlidesPanel,
   onOpenExternal,
   onExportTranscript,
   canExportTranscript = false,
@@ -152,9 +154,14 @@ export function ChatNavbar({
       : (branchName ?? "Detached HEAD")
   const isMac = platform === "darwin"
   const rightPanelVisible = rightPanel !== "hidden"
-  const handleCloseRightPanel = rightPanel === "browser" ? onToggleBrowserPanel : rightPanel === "git" ? onToggleGitPanel : undefined
-  const showBrowserPanelButton = rightPanel === "hidden" || rightPanel === "git"
-  const showGitPanelButton = rightPanel === "hidden" || rightPanel === "browser"
+  const handleCloseRightPanel =
+    rightPanel === "browser" ? onToggleBrowserPanel :
+    rightPanel === "git" ? onToggleGitPanel :
+    rightPanel === "slides" ? onToggleSlidesPanel :
+    undefined
+  const showBrowserPanelButton = rightPanel === "hidden" || rightPanel === "git" || rightPanel === "slides"
+  const showGitPanelButton = rightPanel === "hidden" || rightPanel === "browser" || rightPanel === "slides"
+  const showSlidesPanelButton = rightPanel === "hidden" || rightPanel === "browser" || rightPanel === "git"
 
   return (
     <CardHeader
@@ -280,6 +287,20 @@ export function ChatNavbar({
                     )}
                   >
                     <Globe strokeWidth={2.25} className="h-4" />
+                  </Button>
+                ) : null}
+                {onToggleSlidesPanel && showSlidesPanelButton ? (
+                  <Button
+                    variant="ghost"
+                    size="none"
+                    onClick={onToggleSlidesPanel}
+                    title="Slides Presentation"
+                    aria-label="Slides Presentation"
+                    className={cn(
+                      "border border-border/0 hover:!border-border/0 px-1.5 h-9 hover:!bg-transparent"
+                    )}
+                  >
+                    <Presentation strokeWidth={2.25} className="h-4" />
                   </Button>
                 ) : null}
                 {onToggleGitPanel && showGitPanelButton ? (

@@ -1,0 +1,43 @@
+/* Custom CSS Styling for Marp Slide Presentations */
+
+/* Base container overrides */
+.slide-container {
+  box-sizing: border-box;
+}
+
+/* Gaia Theme Styles */
+.theme-gaia {
+  font-family: Georgia, serif;
+  background-color: #f5f2eb;
+  color: #333333;
+}
+
+.theme-gaia h1, 
+.theme-gaia h2, 
+.theme-gaia h3 {
+  color: #443c33;
+}
+
+/* Uncover Theme Styles */
+.theme-uncover {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+/* Slide Fade Transition effect */
+.slide-transition-fade {
+  transition: opacity 0.2s ease-in-out;
+}
+
+/* Print support to export slides to PDF later */
+@media print {
+  .slide-container {
+    page-break-after: always;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+}

@@ -1,6 +1,58 @@
-import { readFile } from "node:fs/promises"
+import { readFile, readdir } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
+
+async function listMarkdownFiles(projectPath: string): Promise<string[]> {
+  const files: string[] = []
+  
+  async function walk(dir: string, depth = 0) {
+    if (depth > 5) return
+    
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name)
+      const relativePath = path.relative(projectPath, fullPath)
+
+      if (
+        entry.name === "node_modules" ||
+        entry.name === ".git" ||
+        entry.name === ".turbo" ||
+        entry.name === "dist" ||
+        entry.name === "build" ||
+        entry.name === ".next" ||
+        entry.name === "out"
+      ) {
+        continue
+      }
+
+      if (entry.isDirectory()) {
+        await walk(fullPath, depth + 1)
+      } else if (entry.isFile()) {
+        const ext = path.extname(entry.name).toLowerCase()
+        if (ext === ".md" || ext === ".markdown") {
+          files.push(relativePath)
+        }
+      }
+    }
+  }
+
+  await walk(projectPath)
+  return files.sort()
+}
+
+async function readMarkdownFile(projectPath: string, relativePath: string): Promise<string> {
+  const safePath = path.resolve(projectPath, relativePath)
+  if (!safePath.startsWith(path.resolve(projectPath))) {
+    throw new Error("Access denied: path is outside the project directory")
+  }
+  return await readFile(safePath, "utf-8")
+}
 import type { ServerWebSocket } from "bun"
 import { PROTOCOL_VERSION } from "@kanna/shared/types"
 import type { ClientEnvelope, ServerEnvelope, SubscriptionTopic } from "@kanna/shared/protocol"
@@ -1050,6 +1102,24 @@ export function createWsRouter({
         }
         case "browser.killLocalHttpServer": {
           const result = await killLocalHttpServer(command.port)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          return
+        }
+        case "project.listMarkdownFiles": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          const result = await listMarkdownFiles(project.localPath)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          return
+        }
+        case "project.readMarkdownFile": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          const result = await readMarkdownFile(project.localPath, command.relativePath)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           return
         }

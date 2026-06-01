@@ -26,6 +26,9 @@ importers:
       '@kanna/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@kanna/slide-viewer':
+        specifier: workspace:*
+        version: link:../../packages/slide-viewer
       '@legendapp/list':
         specifier: 3.0.0-beta.44
         version: 3.0.0-beta.44(react-dom@19.2.1(react@19.2.1))(react@19.2.1)
@@ -245,6 +248,40 @@ importers:
 
   packages/shared:
     devDependencies:
+      typescript:
+        specifier: 5.8.3
+        version: 5.8.3
+
+  packages/slide-viewer:
+    dependencies:
+      clsx:
+        specifier: ^2.1.1
+        version: 2.1.1
+      lucide-react:
+        specifier: '>=0.400.0'
+        version: 0.562.0(react@19.2.1)
+      react:
+        specifier: '>=18.0.0'
+        version: 19.2.1
+      react-dom:
+        specifier: '>=18.0.0'
+        version: 19.2.1(react@19.2.1)
+      react-markdown:
+        specifier: ^10.1.0
+        version: 10.1.0(@types/react@19.2.7)(react@19.2.1)
+      remark-gfm:
+        specifier: ^4.0.1
+        version: 4.0.1
+      tailwind-merge:
+        specifier: ^3.4.0
+        version: 3.6.0
+    devDependencies:
+      '@types/react':
+        specifier: 19.2.7
+        version: 19.2.7
+      '@types/react-dom':
+        specifier: 19.2.3
+        version: 19.2.3(@types/react@19.2.7)
       typescript:
         specifier: 5.8.3
         version: 5.8.3

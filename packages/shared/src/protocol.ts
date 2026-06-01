@@ -71,6 +71,8 @@ export type TerminalEvent =
 
 export type ClientCommand =
   | { type: "project.open"; localPath: string }
+  | { type: "project.listMarkdownFiles"; projectId: string }
+  | { type: "project.readMarkdownFile"; projectId: string; relativePath: string }
   | { type: "project.create"; localPath: string; title: string }
   | { type: "project.rename"; projectId: string; title: string }
   | { type: "project.remove"; projectId: string }
