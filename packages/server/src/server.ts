@@ -161,7 +161,7 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
       .then(() => router.broadcastSnapshots())
   }, STALE_EMPTY_CHAT_PRUNE_INTERVAL_MS)
 
-  const distDir = path.join(import.meta.dir, "..", "..", "dist", "client")
+  const distDir = path.join(import.meta.dir, "..", "..", "..", "dist", "client")
 
   const MAX_PORT_ATTEMPTS = 20
   let actualPort = port

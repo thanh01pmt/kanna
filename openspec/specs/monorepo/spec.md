@@ -1,5 +1,6 @@
 # Capability: Monorepo Workspace
 
+## Purpose
 This capability defines the monorepo structure, package management, build pipeline, and execution orchestration for the Kanna project.
 
 ## Requirements

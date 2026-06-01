@@ -70,7 +70,7 @@ interface PreparedMessagesResult {
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
 export function getStandaloneViewerDistDir() {
-  return path.join(import.meta.dir, "..", "..", "dist", "export-viewer")
+  return path.join(import.meta.dir, "..", "..", "..", "dist", "export-viewer")
 }
 
 export async function writeStandaloneTranscriptExport(
