@@ -133,6 +133,8 @@ describe("resolveSettingsSectionId", () => {
   test("accepts known settings sections", () => {
     expect(resolveSettingsSectionId("general")).toBe("general")
     expect(resolveSettingsSectionId("providers")).toBe("providers")
+    expect(resolveSettingsSectionId("workflow")).toBe("workflow")
+    expect(resolveSettingsSectionId("mcp")).toBe("mcp")
     expect(resolveSettingsSectionId("changelog")).toBe("changelog")
     expect(resolveSettingsSectionId("keybindings")).toBe("keybindings")
     expect(resolveSettingsSectionId("skills")).toBe("skills")

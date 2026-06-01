@@ -4,6 +4,7 @@ import {
   Command,
   Code,
   ExternalLink,
+  GitBranch,
   Info,
   Loader2,
   Menu,
@@ -12,6 +13,7 @@ import {
   MessageSquareQuote,
   Search,
   Settings2,
+  Workflow,
   Sun,
   DownloadCloud,
   LogOut,
@@ -92,6 +94,18 @@ const sidebarItems = [
     label: "Providers",
     icon: MessageSquareQuote,
     subtitle: "Manage the default chat provider and saved model defaults for Claude Code and Codex.",
+  },
+  {
+    id: "workflow",
+    label: "Workflow",
+    icon: Workflow,
+    subtitle: "Inspect the workflow runtime, event-store model, and artifact tracking surfaces.",
+  },
+  {
+    id: "mcp",
+    label: "MCP",
+    icon: GitBranch,
+    subtitle: "Inspect the local MCP server config and workflow tools exposed to MCP clients.",
   },
   {
     id: "keybindings",
@@ -767,6 +781,130 @@ export function SkillsSection({
           </div>
         ) : null}
       </section>
+    </div>
+  )
+}
+
+function CodePill({ children }: { children: ReactNode }) {
+  return (
+    <span className="rounded-md border border-border bg-card/50 px-2 py-1 font-mono text-xs text-foreground">
+      {children}
+    </span>
+  )
+}
+
+function StatusPill({ children, tone = "neutral" }: { children: ReactNode; tone?: "neutral" | "good" }) {
+  return (
+    <span
+      className={cn(
+        "rounded-full border px-2.5 py-1 text-xs font-medium",
+        tone === "good"
+          ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-500"
+          : "border-border bg-card/50 text-muted-foreground"
+      )}
+    >
+      {children}
+    </span>
+  )
+}
+
+export function WorkflowSection() {
+  return (
+    <div className="border-b border-border">
+      <SettingsRow
+        title="Runtime"
+        description="Workflow state is projected from an append-only event store and shown in the right sidebar."
+        bordered={false}
+      >
+        <div className="flex flex-wrap justify-end gap-2">
+          <StatusPill tone="good">Enabled</StatusPill>
+          <CodePill>WorkflowRuntimeStore</CodePill>
+        </div>
+      </SettingsRow>
+
+      <SettingsRow
+        title="Event Store"
+        description="Primary storage is Postgres/Supabase rows with JSONB payloads. JSONL is treated as import/export/debug format, not the production source of truth."
+      >
+        <div className="flex flex-wrap justify-end gap-2">
+          <StatusPill tone="good">Supabase-ready</StatusPill>
+          <CodePill>workflow_events</CodePill>
+        </div>
+      </SettingsRow>
+
+      <SettingsRow
+        title="Artifacts"
+        description="Artifacts are classified by kind, versioned with checksum metadata, and linked to downstream review estimates."
+      >
+        <div className="flex flex-wrap justify-end gap-2">
+          <CodePill>artifacts</CodePill>
+          <CodePill>artifact_versions</CodePill>
+          <CodePill>artifact_impacts</CodePill>
+        </div>
+      </SettingsRow>
+
+      <SettingsRow
+        title="Workflow Picker"
+        description="Open a project chat and click the workflow icon in the top-right toolbar. Workflow progress appears in the right sidebar, while agent activity remains in chat."
+        alignStart
+      >
+        <div className="max-w-[420px] rounded-lg border border-border bg-card/30 p-3 text-xs text-muted-foreground">
+          Current MVP seeds the curriculum workflow from imported workflow markdown. A generic workflow importer can become the next Settings action.
+        </div>
+      </SettingsRow>
+    </div>
+  )
+}
+
+export function McpSection() {
+  const tools = [
+    "workflow_list_definitions",
+    "workflow_start_run",
+    "workflow_get_projection",
+    "workflow_list_runs",
+    "workflow_list_events",
+    "workflow_append_event",
+    "artifact_list",
+  ]
+
+  return (
+    <div className="border-b border-border">
+      <SettingsRow
+        title="Local MCP Server"
+        description="Kanna exposes workflow operations through a local stdio MCP server for MCP-capable agents and editors."
+        bordered={false}
+      >
+        <div className="flex flex-wrap justify-end gap-2">
+          <StatusPill tone="good">Configured</StatusPill>
+          <CodePill>kanna-workflow</CodePill>
+        </div>
+      </SettingsRow>
+
+      <SettingsRow
+        title="Project Config"
+        description="The project-level MCP config is checked into the workspace so compatible clients can discover the server."
+      >
+        <CodePill>.mcp.json</CodePill>
+      </SettingsRow>
+
+      <SettingsRow
+        title="Command"
+        description="The MCP host runs this command from the repository root."
+      >
+        <CodePill>bun packages/mcp/src/index.ts</CodePill>
+      </SettingsRow>
+
+      <SettingsRow
+        title="Tools"
+        description="These tools expose workflow definitions, runs, events, projections, and classified artifacts."
+        alignStart
+      >
+        <div className="flex max-w-[520px] flex-wrap justify-end gap-2">
+          {tools.map((tool) => (
+            <CodePill key={tool}>{tool}</CodePill>
+          ))}
+        </div>
+      </SettingsRow>
     </div>
   )
 }
@@ -1818,6 +1956,10 @@ export function SettingsPage() {
                   </div>
                 ) : selectedPage === "skills" ? (
                   <SkillsSection state={state} />
+                ) : selectedPage === "workflow" ? (
+                  <WorkflowSection />
+                ) : selectedPage === "mcp" ? (
+                  <McpSection />
                 ) : (
                   <ChangelogSection
                     status={changelogStatus}
