@@ -1,0 +1,12 @@
+{
+  "name": "@kanna/shared",
+  "version": "0.41.5",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": "./src/*"
+  },
+  "devDependencies": {
+    "typescript": "5.8.3"
+  }
+}

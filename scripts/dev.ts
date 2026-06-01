@@ -1,10 +1,11 @@
 import process from "node:process"
+import path from "node:path"
 import { hostname as getHostname } from "node:os"
 import { spawn, type ChildProcess } from "node:child_process"
-import { LOG_PREFIX } from "../src/shared/branding"
-import { parseDevArgs } from "../src/shared/dev-ports"
-import { isShareEnabled, isTokenShareMode } from "../src/shared/share"
-import { logShareDetails, startShareTunnel } from "../src/server/share"
+import { LOG_PREFIX } from "../packages/shared/src/branding"
+import { parseDevArgs } from "../packages/shared/src/dev-ports"
+import { isShareEnabled, isTokenShareMode } from "../packages/shared/src/share"
+import { logShareDetails, startShareTunnel } from "../packages/server/src/share"
 
 const cwd = process.cwd()
 const forwardedArgs = process.argv.slice(2)
@@ -22,9 +23,9 @@ const clientEnv = {
   KANNA_DEV_BACKEND_PORT: String(serverPort),
 }
 
-function spawnLabeledProcess(label: string, args: string[]) {
+function spawnLabeledProcess(label: string, args: string[], options?: { cwd?: string }) {
   const child = spawn(bunBin, args, {
-    cwd,
+    cwd: options?.cwd ?? cwd,
     stdio: "inherit",
     env: label === "client" ? clientEnv : process.env,
   })
@@ -36,9 +37,9 @@ function spawnLabeledProcess(label: string, args: string[]) {
   return child
 }
 
-const client = spawnLabeledProcess("client", ["x", "vite", "--host", "0.0.0.0", "--port", String(clientPort), "--strictPort"])
+const client = spawnLabeledProcess("client", ["x", "vite", "--host", "0.0.0.0", "--port", String(clientPort), "--strictPort"], { cwd: path.join(cwd, "apps/client") })
 const server = spawn(bunBin, ["run", "./scripts/dev-server.ts", "--no-open", "--port", String(serverPort), "--strict-port", ...serverArgs], {
-  cwd,
+  cwd: path.join(cwd, "packages/server"),
   stdio: "inherit",
   env: process.env,
 })
