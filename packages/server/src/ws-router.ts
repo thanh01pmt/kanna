@@ -20,12 +20,10 @@ async function listMarkdownFiles(projectPath: string): Promise<string[]> {
       const relativePath = path.relative(projectPath, fullPath)
 
       if (
+        entry.name.startsWith(".") ||
         entry.name === "node_modules" ||
-        entry.name === ".git" ||
-        entry.name === ".turbo" ||
         entry.name === "dist" ||
         entry.name === "build" ||
-        entry.name === ".next" ||
         entry.name === "out"
       ) {
         continue

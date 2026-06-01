@@ -29,3 +29,15 @@
 
 - [x] 5.1 Build the monorepo using `pnpm build` to verify type safety and compilation across all packages.
 - [x] 5.2 Validate the OpenSpec change using strict validation.
+
+## 6. Monorepo Package Setup: `@kanna/tree-view`
+
+- [x] 6.1 Create the directory structure `packages/tree-view` with its own `package.json` and `tsconfig.json` defining standard workspace package config.
+- [x] 6.2 Implement path parser utility that builds a nested tree from an array of relative paths.
+- [x] 6.3 Implement collapsible, interactive React folder tree component in `packages/tree-view/src/components/FileTree.tsx`.
+- [x] 6.4 Expose the package exports in `packages/tree-view/src/index.ts`.
+
+## 7. Tree View Integration & UI Update
+
+- [x] 7.1 Reference the `@kanna/tree-view` package dependency in `apps/client/package.json` and run `pnpm install` to link workspace packages.
+- [x] 7.2 Refactor `apps/client/src/client/components/chat-ui/MarkdownSlideViewer.tsx` to feature a resizable/collapsible left pane containing the file tree and a right pane displaying the slide viewer, replacing the simple dropdown.

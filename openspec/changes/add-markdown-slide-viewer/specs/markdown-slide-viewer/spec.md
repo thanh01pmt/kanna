@@ -43,3 +43,14 @@ The system SHALL allow users to adjust slide theme, aspect ratio, text scale, an
 #### Scenario: Adjust text scale
 - **WHEN** the user changes the text scale setting to 120%
 - **THEN** the font size of the slide content SHALL scale proportionally
+
+### Requirement: Project File Tree View Navigation
+The system SHALL display all project markdown files in a hierarchical tree view component, allowing users to collapse/expand folders, view file icons, and select a file to preview.
+
+#### Scenario: Expand and collapse directories in Tree View
+- **WHEN** the user clicks on a directory node in the project file tree
+- **THEN** the system SHALL toggle its expansion state, showing or hiding its child elements
+
+#### Scenario: Select file to preview
+- **WHEN** the user clicks on a markdown file node in the project file tree
+- **THEN** the system SHALL request the file content from the server and render the file in the slide/document viewer area

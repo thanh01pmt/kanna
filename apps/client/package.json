@@ -18,7 +18,8 @@
     "@xterm/xterm": "^6.0.0",
     "react-resizable-panels": "^4.7.3",
     "@kanna/shared": "workspace:*",
-    "@kanna/slide-viewer": "workspace:*"
+    "@kanna/slide-viewer": "workspace:*",
+    "@kanna/tree-view": "workspace:*"
   },
   "devDependencies": {
     "@dnd-kit/core": "^6.3.1",
