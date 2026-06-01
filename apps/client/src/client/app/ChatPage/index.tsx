@@ -484,6 +484,7 @@ export function ChatPage() {
   const [pendingTerminalCommands, setPendingTerminalCommands] = useState<Record<string, string>>({})
   const [workflowProjection, setWorkflowProjection] = useState<WorkflowRunProjection | null>(null)
   const [workflowDefinitions, setWorkflowDefinitions] = useState<WorkflowDefinitionSummary[]>([])
+  const [proposedManifest, setProposedManifest] = useState<import("@kanna/shared/workflow-schema").WorkflowManifest | null>(null)
   const [isStartingWorkflow, setIsStartingWorkflow] = useState(false)
   const showEmptyState = state.messages.length === 0 && state.runtime?.title === "New Chat"
   const projectId = state.activeProjectId
@@ -498,9 +499,29 @@ export function ChatPage() {
   const resetMainSizes = useTerminalLayoutStore((store) => store.resetMainSizes)
   const setMainSizes = useTerminalLayoutStore((store) => store.setMainSizes)
   const setTerminalSizes = useTerminalLayoutStore((store) => store.setTerminalSizes)
+
+  // Demo listener for mock proposed manifest
+  useEffect(() => {
+    const handleMockManifest = () => {
+      setProposedManifest({
+        version: "v3.0",
+        name: "create-lesson",
+        description: "Sản xuất LESSON canonical gồm PLAN + LESSON FLOW.",
+        artifacts: [
+          { id: "lesson", name: "LESSON", pattern: "LESSON_*.md", dependencies: [] },
+          { id: "act", name: "ACT", pattern: "ACT_*.md", dependencies: [{ sourcePattern: "LESSON_*.md", relationship: "derives_from" }] },
+        ]
+      })
+    }
+    document.addEventListener("kanna:mock_proposed_manifest", handleMockManifest)
+    return () => document.removeEventListener("kanna:mock_proposed_manifest", handleMockManifest)
+  }, [])
+
   const toggleRightPanel = useRightSidebarStore((store) => store.togglePanel)
   const hideRightPanel = useRightSidebarStore((store) => store.hidePanel)
   const setRightSidebarSize = useRightSidebarStore((store) => store.setSize)
+  const projectUiState = useRightSidebarStore((store) => (projectId ? store.projectUi[projectId] : undefined))
+  const setWorkflowDensityMode = useRightSidebarStore((store) => store.setWorkflowDensityMode)
   const scrollback = useTerminalPreferencesStore((store) => store.scrollbackLines)
   const minColumnWidth = useTerminalPreferencesStore((store) => store.minColumnWidth)
   const editorPreset = useTerminalPreferencesStore((store) => store.editorPreset)
@@ -589,19 +610,6 @@ export function ChatPage() {
       "- Mark each as reviewed_ok, needs_repair, or maybe_impacted.",
       "- Repair only when necessary and explain what changed.",
     ].join("\n"))
-  }, [sendWorkflowAgentRequest])
-
-  const handleRepairImpacted = useCallback((impact: WorkflowArtifactImpact) => {
-    void sendWorkflowAgentRequest([
-      `Repair impacted artifact candidate: ${impact.impactedPath}.`,
-      "",
-      `Impact status: ${impact.status}`,
-      `Relationship: ${impact.relationship}`,
-      `Kind: ${impact.impactedKind}`,
-      impact.reason ? `Reason: ${impact.reason}` : "",
-      "",
-      "Please inspect the source artifact and repair the impacted artifact if needed. Keep the workflow sidebar updated through normal file/tool activity.",
-    ].filter(Boolean).join("\n"))
   }, [sendWorkflowAgentRequest])
 
   const contextWindowSnapshot = useMemo(() => {
@@ -1217,8 +1225,33 @@ export function ChatPage() {
             workflowDefinitions={workflowDefinitions}
             isStartingWorkflow={isStartingWorkflow}
             onStartWorkflow={handleStartWorkflow}
+            proposedManifest={proposedManifest || undefined}
+            onPublishWorkflow={(manifest) => {
+              console.log("Mock action: publishing manifest", manifest)
+              setProposedManifest(null)
+            }}
+            onRejectWorkflow={() => {
+              console.log("Mock action: reject proposed manifest")
+              setProposedManifest(null)
+            }}
             onReviewDownstream={handleReviewDownstream}
-            onRepairImpacted={handleRepairImpacted}
+            onRepairDownstream={(artifact, impacted) => {
+              console.log("Mock action: repair downstream for", artifact.path, "impacting", impacted.length, "artifacts")
+            }}
+            onRerunArtifact={(artifact) => {
+              console.log("Mock action: rerun artifact", artifact.path)
+            }}
+            onRegenerateArtifact={(artifact) => {
+              console.log("Mock action: regenerate artifact", artifact.path)
+            }}
+            onInvalidateArtifact={(artifact) => {
+              console.log("Mock action: invalidate artifact", artifact.path)
+            }}
+            onAcceptArtifact={(artifact) => {
+              console.log("Mock action: accept artifact as source of truth", artifact.path)
+            }}
+            densityMode={projectUiState?.workflowDensityMode ?? "normal"}
+            onDensityModeChange={(mode) => projectId && setWorkflowDensityMode(projectId, mode)}
             onClose={handleCloseRightSidebar}
           />
         )

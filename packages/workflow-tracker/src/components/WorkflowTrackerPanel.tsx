@@ -18,11 +18,15 @@ import {
 } from "lucide-react"
 import type { WorkflowArtifactImpact, WorkflowArtifactImpactStatus, WorkflowArtifactRef, WorkflowDefinitionSummary, WorkflowNode, WorkflowNodeStatus, WorkflowTrackerActions, WorkflowRunProjection } from "../types"
 import { cn } from "../logic/cn"
+import { WorkflowManifestReviewCard } from "./WorkflowManifestReviewCard"
 import { countKnownWorkflowNodes, countLocalChildren, findChangedArtifact, findLiveNode, formatDuration, formatTokens, getImpactsForArtifact } from "../logic/projection"
+import { calculateDownstreamImpacts } from "../logic/impacts"
 
 export interface WorkflowTrackerPanelProps extends WorkflowTrackerActions {
   run: WorkflowRunProjection | null
   className?: string
+  densityMode?: "compact" | "normal" | "expanded"
+  onDensityModeChange?: (mode: "compact" | "normal" | "expanded") => void
 }
 
 const STATUS_LABEL: Record<WorkflowNodeStatus, string> = {
@@ -60,34 +64,58 @@ function statusBadgeClass(status: WorkflowNodeStatus) {
   return "border-border bg-muted/50 text-muted-foreground"
 }
 
-function NodeMeta({ node }: { node: WorkflowNode }) {
+function NodeMeta({ node, densityMode = "normal" }: { node: WorkflowNode; densityMode?: "compact" | "normal" | "expanded" }) {
   const childCounts = countLocalChildren(node)
   const showLocalCount = (node.children?.length ?? 0) > 0
+  const isCompact = densityMode === "compact"
   return (
     <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
       <span className="rounded-md border border-border bg-background px-1.5 py-0.5 font-mono">{node.nodeType}</span>
       <span className="rounded-md border border-border bg-background px-1.5 py-0.5 font-mono">{node.source}</span>
       {node.agent ? <span className="rounded-md border border-border bg-background px-1.5 py-0.5 font-mono">{node.agent}</span> : null}
-      {node.durationMs ? <span className="font-mono">{formatDuration(node.durationMs)}</span> : null}
-      {node.tokens ? <span className="font-mono">{formatTokens(node.tokens)}</span> : null}
+      {node.durationMs && !isCompact ? <span className="font-mono">{formatDuration(node.durationMs)}</span> : null}
+      {node.tokens && !isCompact ? <span className="font-mono">{formatTokens(node.tokens)}</span> : null}
       {showLocalCount ? (
-        <span className="font-mono">
-          {childCounts.done}/{childCounts.known} {childCounts.sealed ? "steps" : "known"}
+        <span className="flex flex-wrap items-center gap-1.5 font-mono">
+          {childCounts.done > 0 ? <span className="rounded-md border border-border bg-muted/50 px-1.5 py-0.5">{childCounts.done} done</span> : null}
+          {childCounts.running > 0 ? <span className="rounded-md border border-[hsl(var(--chart-1)/0.35)] bg-[hsl(var(--chart-1)/0.12)] text-foreground px-1.5 py-0.5">{childCounts.running} running</span> : null}
+          {(childCounts.known - childCounts.done - childCounts.running) > 0 ? <span className="rounded-md border border-border bg-muted/50 px-1.5 py-0.5">{childCounts.known - childCounts.done - childCounts.running} known next</span> : null}
+          {!childCounts.sealed ? <span className="rounded-md border border-border bg-muted/50 px-1.5 py-0.5">horizon open</span> : null}
         </span>
       ) : null}
-      {!childCounts.sealed && showLocalCount ? <span className="font-mono">horizon open</span> : null}
     </div>
   )
 }
 
-function ArtifactChip({ artifact }: { artifact: WorkflowArtifactRef }) {
+function ArtifactChip({ 
+  artifact,
+  densityMode = "normal",
+  actions,
+}: { 
+  artifact: WorkflowArtifactRef
+  densityMode?: "compact" | "normal" | "expanded"
+  actions?: WorkflowTrackerActions
+}) {
+  const isExpanded = densityMode === "expanded"
+  
   return (
     <span className={cn(
-      "inline-flex min-w-0 items-center gap-1 rounded-lg border border-border bg-background px-2 py-1 text-[11px] text-muted-foreground",
+      "group relative inline-flex min-w-0 items-center gap-1 rounded-lg border border-border bg-background px-2 py-1 text-[11px] text-muted-foreground transition-all",
       artifact.changed && "border-[hsl(var(--chart-1)/0.45)] bg-[hsl(var(--chart-1)/0.1)] text-foreground"
     )}>
       <FileText className="h-3.5 w-3.5 shrink-0" />
       <span className="truncate font-mono">{artifact.path}</span>
+      <div className={cn(
+        "flex shrink-0 items-center gap-1 overflow-hidden transition-all duration-200",
+        isExpanded ? "ml-1 max-w-[400px] opacity-100" : "max-w-0 opacity-0 group-hover:ml-1 group-hover:max-w-[400px] group-hover:opacity-100"
+      )}>
+        <button type="button" className="rounded-md border border-border bg-muted/40 px-1.5 py-0.5 text-[10px] hover:bg-muted hover:text-foreground" onClick={(e) => { e.stopPropagation(); actions?.onRerunArtifact?.(artifact) }}>Rerun</button>
+        <button type="button" className="rounded-md border border-border bg-muted/40 px-1.5 py-0.5 text-[10px] hover:bg-muted hover:text-foreground" onClick={(e) => { e.stopPropagation(); actions?.onReviewDownstream?.(artifact) }}>Review</button>
+        <button type="button" className="rounded-md border border-border bg-muted/40 px-1.5 py-0.5 text-[10px] hover:bg-muted hover:text-foreground" onClick={(e) => { e.stopPropagation(); actions?.onRepairDownstream?.(artifact, []) }}>Repair</button>
+        <button type="button" className="rounded-md border border-border bg-muted/40 px-1.5 py-0.5 text-[10px] hover:bg-muted hover:text-foreground" onClick={(e) => { e.stopPropagation(); actions?.onRegenerateArtifact?.(artifact) }}>Regen</button>
+        <button type="button" className="rounded-md border border-border bg-muted/40 px-1.5 py-0.5 text-[10px] hover:bg-muted hover:text-foreground" onClick={(e) => { e.stopPropagation(); actions?.onInvalidateArtifact?.(artifact) }}>Invalidate</button>
+        <button type="button" className="rounded-md border border-border bg-muted/40 px-1.5 py-0.5 text-[10px] hover:bg-muted hover:text-foreground" onClick={(e) => { e.stopPropagation(); actions?.onAcceptArtifact?.(artifact) }}>Accept</button>
+      </div>
     </span>
   )
 }
@@ -96,20 +124,25 @@ function WorkflowNodeRow({
   node,
   depth,
   selectedNodeId,
+  densityMode = "normal",
+  actions,
   onSelectNode,
   onRerunNode,
 }: {
   node: WorkflowNode
   depth: number
   selectedNodeId: string | null
+  densityMode?: "compact" | "normal" | "expanded"
+  actions?: WorkflowTrackerActions
   onSelectNode?: (node: WorkflowNode) => void
   onRerunNode?: (node: WorkflowNode) => void
 }) {
-  const startsOpen = node.status === "running" || node.children?.some((child) => child.status === "running")
+  const startsOpen = densityMode === "expanded" || node.status === "running" || node.children?.some((child) => child.status === "running")
   const [open, setOpen] = useState(startsOpen)
   const hasChildren = Boolean(node.children?.length)
   const isSelected = selectedNodeId === node.id
   const canRerun = node.status === "done" || node.status === "failed" || node.status === "skipped"
+  const isCompact = densityMode === "compact"
 
   return (
     <div>
@@ -133,14 +166,14 @@ function WorkflowNodeRow({
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-2">
             <span className="truncate text-sm font-medium text-foreground">{node.name}</span>
-            <span className={cn("shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.04em]", statusBadgeClass(node.status))}>
+            <span className={cn("shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.04em] font-mono", statusBadgeClass(node.status))}>
               {STATUS_LABEL[node.status]}
             </span>
           </span>
-          <NodeMeta node={node} />
-          {node.condition ? <div className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">if: {node.condition}</div> : null}
-          {node.logSummary ? <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{node.logSummary}</div> : null}
-          {node.artifacts?.length ? <div className="mt-2 flex flex-wrap gap-1.5">{node.artifacts.map((artifact) => <ArtifactChip key={artifact.id} artifact={artifact} />)}</div> : null}
+          <NodeMeta node={node} densityMode={densityMode} />
+          {node.condition && !isCompact ? <div className="mt-1 line-clamp-2 text-[11px] text-muted-foreground font-mono">if: {node.condition}</div> : null}
+          {node.logSummary && !isCompact ? <div className="mt-1 line-clamp-2 text-xs text-muted-foreground font-mono">{node.logSummary}</div> : null}
+          {node.artifacts?.length && !isCompact ? <div className="mt-2 flex flex-wrap gap-1.5">{node.artifacts.map((artifact) => <ArtifactChip key={artifact.id} artifact={artifact} densityMode={densityMode} actions={actions} />)}</div> : null}
         </span>
         {canRerun ? (
           <span
@@ -171,6 +204,8 @@ function WorkflowNodeRow({
               node={child}
               depth={depth + 1}
               selectedNodeId={selectedNodeId}
+              densityMode={densityMode}
+              actions={actions}
               onSelectNode={onSelectNode}
               onRerunNode={onRerunNode}
             />
@@ -236,8 +271,20 @@ function WorkflowStartCard({
 
   return (
     <section className="border-b border-border p-3">
-      <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-        <GitBranch className="h-3.5 w-3.5" /> Start Workflow
+      <div className="mb-2 flex items-center justify-between">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+          <GitBranch className="h-3.5 w-3.5" /> Start Workflow
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            // Mock trigger for proposed manifest testing
+            document.dispatchEvent(new CustomEvent("kanna:mock_proposed_manifest"))
+          }}
+          className="text-[10px] uppercase font-semibold text-primary hover:underline"
+        >
+          Test Import
+        </button>
       </div>
       <div className="space-y-2">
         {definitions.map((definition) => (
@@ -270,22 +317,18 @@ function WorkflowStartCard({
 export function WorkflowTrackerPanel({
   run,
   className,
-  onClose,
-  onSelectNode,
-  onRerunNode,
-  onReviewDownstream,
-  onRepairImpacted,
-  workflowDefinitions,
-  onStartWorkflow,
-  isStartingWorkflow,
+  densityMode = "normal",
+  onDensityModeChange,
+  ...actions
 }: WorkflowTrackerPanelProps) {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const [repairTarget, setRepairTarget] = useState<WorkflowArtifactRef | null>(null)
   const counts = useMemo(() => run ? countKnownWorkflowNodes(run.root) : null, [run])
   const liveNode = useMemo(() => run ? findLiveNode(run.root) : null, [run])
   const changedArtifact = useMemo(() => findChangedArtifact(run?.latestArtifacts), [run])
   const changedImpacts = useMemo(() => changedArtifact ? getImpactsForArtifact(changedArtifact.id, run?.impacts) : [], [changedArtifact, run?.impacts])
 
-  if (!run || !counts) return <EmptyWorkflowPanel onClose={onClose} />
+  if (!run || !counts) return <EmptyWorkflowPanel onClose={actions.onClose} />
 
   return (
     <aside className={cn("flex h-full min-h-0 flex-col border-l border-border bg-background", className)}>
@@ -297,23 +340,61 @@ export function WorkflowTrackerPanel({
             </div>
             <h2 className="mt-1 truncate text-base font-semibold text-foreground">{run.title}</h2>
           </div>
-          {onClose ? (
-            <button type="button" className="rounded-full p-2 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={onClose} title="Close workflow sidebar">
-              <PanelRightClose className="h-4 w-4" />
-            </button>
-          ) : null}
+          <div className="flex shrink-0 items-center gap-1">
+            {onDensityModeChange ? (
+              <div className="mr-2 inline-flex items-center rounded-lg border border-border p-[3px] bg-muted/30">
+                <button
+                  type="button"
+                  className={cn("rounded-[4px] px-2 py-1 text-[11px] font-medium transition-colors", densityMode === "compact" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
+                  onClick={() => onDensityModeChange("compact")}
+                >
+                  Compact
+                </button>
+                <button
+                  type="button"
+                  className={cn("rounded-[4px] px-2 py-1 text-[11px] font-medium transition-colors", densityMode === "normal" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
+                  onClick={() => onDensityModeChange("normal")}
+                >
+                  Normal
+                </button>
+                <button
+                  type="button"
+                  className={cn("rounded-[4px] px-2 py-1 text-[11px] font-medium transition-colors", densityMode === "expanded" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
+                  onClick={() => onDensityModeChange("expanded")}
+                >
+                  Expanded
+                </button>
+              </div>
+            ) : null}
+            {actions.onClose ? (
+              <button type="button" className="rounded-full p-2 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={actions.onClose} title="Close workflow sidebar">
+                <PanelRightClose className="h-4 w-4" />
+              </button>
+            ) : null}
+          </div>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
           <span className="rounded-md border border-border bg-muted/50 px-1.5 py-0.5 font-mono">{formatDuration(run.elapsedMs)}</span>
           <span className="rounded-md border border-border bg-muted/50 px-1.5 py-0.5 font-mono">{formatTokens(run.tokenTotalKnown)}</span>
           <span className="rounded-md border border-border bg-muted/50 px-1.5 py-0.5 font-mono">{counts.done} done</span>
-          <span className="rounded-md border border-border bg-muted/50 px-1.5 py-0.5 font-mono">{counts.known} known</span>
+          {counts.running > 0 ? <span className="rounded-md border border-[hsl(var(--chart-1)/0.35)] bg-[hsl(var(--chart-1)/0.12)] text-foreground px-1.5 py-0.5 font-mono">{counts.running} running</span> : null}
+          {(counts.known - counts.done - counts.running) > 0 ? <span className="rounded-md border border-border bg-muted/50 px-1.5 py-0.5 font-mono">{counts.known - counts.done - counts.running} known next</span> : null}
           {counts.openHorizon ? <span className="rounded-md border border-border bg-muted/50 px-1.5 py-0.5 font-mono">horizon open</span> : null}
         </div>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <WorkflowStartCard definitions={workflowDefinitions} onStartWorkflow={onStartWorkflow} isStartingWorkflow={isStartingWorkflow} />
+        {actions.proposedManifest && actions.onPublishWorkflow ? (
+          <div className="p-3 border-b border-border">
+            <WorkflowManifestReviewCard
+              manifest={actions.proposedManifest}
+              onPublish={actions.onPublishWorkflow}
+              onReject={actions.onRejectWorkflow}
+            />
+          </div>
+        ) : null}
+
+        <WorkflowStartCard definitions={actions.workflowDefinitions} onStartWorkflow={actions.onStartWorkflow} isStartingWorkflow={actions.isStartingWorkflow} />
 
         <section className="border-b border-border p-3">
           <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
@@ -347,12 +428,12 @@ export function WorkflowTrackerPanel({
                 <button
                   type="button"
                   className="mt-3 inline-flex h-8 items-center rounded-full border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-muted"
-                  onClick={() => onReviewDownstream?.(changedArtifact)}
+                  onClick={() => actions.onReviewDownstream?.(changedArtifact)}
                 >
                   Review downstream
                 </button>
               </div>
-              {changedImpacts.map((impact) => <ImpactRow key={impact.id} impact={impact} onRepairImpacted={onRepairImpacted} />)}
+              {changedImpacts.map((impact) => <ImpactRow key={impact.id} impact={impact} />)}
             </div>
           </section>
         ) : null}
@@ -368,10 +449,15 @@ export function WorkflowTrackerPanel({
                 node={node}
                 depth={0}
                 selectedNodeId={selectedNodeId}
-                onRerunNode={onRerunNode}
+                densityMode={densityMode}
+                actions={{
+                  ...actions,
+                  onRepairDownstream: (artifact) => setRepairTarget(artifact)
+                }}
+                onRerunNode={actions.onRerunNode}
                 onSelectNode={(selected) => {
                   setSelectedNodeId(selected.id)
-                  onSelectNode?.(selected)
+                  actions.onSelectNode?.(selected)
                 }}
               />
             ))}
@@ -383,10 +469,48 @@ export function WorkflowTrackerPanel({
             <History className="h-3.5 w-3.5" /> Latest Artifacts
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {run.latestArtifacts?.map((artifact) => <ArtifactChip key={artifact.id} artifact={artifact} />)}
+            {run.latestArtifacts?.map((artifact) => <ArtifactChip key={artifact.id} artifact={artifact} densityMode={densityMode} actions={{
+              ...actions,
+              onRepairDownstream: (a) => setRepairTarget(a)
+            }} />)}
           </div>
         </section>
       </div>
+      
+      {repairTarget ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-xl border border-border bg-background p-5 shadow-xl">
+            <h3 className="text-lg font-semibold text-foreground">Confirm Downstream Repair</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Repairing <span className="font-mono text-foreground">{repairTarget.path}</span> will also impact the following downstream artifacts:
+            </p>
+            <div className="my-4 max-h-60 overflow-y-auto rounded-lg border border-border bg-muted/30 p-2">
+              {(() => {
+                const impacted = calculateDownstreamImpacts(repairTarget.id, run.impacts ?? [], run.latestArtifacts ?? [])
+                if (impacted.length === 0) return <div className="p-2 text-sm text-muted-foreground font-mono">No downstream artifacts found.</div>
+                return (
+                  <ul className="space-y-1">
+                    {impacted.map(art => (
+                      <li key={art.id} className="flex items-center gap-2 rounded px-2 py-1 text-[11px] hover:bg-muted/50 font-mono text-muted-foreground">
+                        <AlertTriangle className="h-3 w-3 text-[hsl(var(--chart-1))]" />
+                        {art.path}
+                      </li>
+                    ))}
+                  </ul>
+                )
+              })()}
+            </div>
+            <div className="flex justify-end gap-2">
+              <button type="button" className="rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted" onClick={() => setRepairTarget(null)}>Cancel</button>
+              <button type="button" className="rounded-md bg-logo px-3 py-1.5 text-sm font-medium text-white hover:bg-logo/90" onClick={() => {
+                const impacted = calculateDownstreamImpacts(repairTarget.id, run.impacts ?? [], run.latestArtifacts ?? [])
+                actions.onRepairDownstream?.(repairTarget, impacted)
+                setRepairTarget(null)
+              }}>Confirm Repair</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </aside>
   )
 }

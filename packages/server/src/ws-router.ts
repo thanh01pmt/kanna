@@ -499,6 +499,41 @@ export function createWsRouter({
   let pendingBroadcastAll = false
   const pendingBroadcastChatIds = new Set<string>()
   const pendingBroadcastProjectIds = new Set<string>()
+
+  const projectWorkflowDbSubscriptions = new Map<string, () => void>()
+
+  function syncProjectWorkflowDbSubscriptions() {
+    const activeProjectIds = new Set<string>()
+    for (const socket of sockets) {
+      for (const topic of socket.data.subscriptions.values()) {
+        if (topic.type === "project-workflow") {
+          activeProjectIds.add(topic.projectId)
+        }
+      }
+    }
+
+    for (const [projectId, unsubscribe] of projectWorkflowDbSubscriptions.entries()) {
+      if (!activeProjectIds.has(projectId)) {
+        try {
+          unsubscribe()
+        } catch (err) {
+          console.error(`[ws-router] failed to unsubscribe from DB for project ${projectId}`, err)
+        }
+        projectWorkflowDbSubscriptions.delete(projectId)
+      }
+    }
+
+    for (const projectId of activeProjectIds) {
+      if (!projectWorkflowDbSubscriptions.has(projectId)) {
+        if (resolvedWorkflowStore.subscribeToProjectWorkflow) {
+          const unsubscribe = resolvedWorkflowStore.subscribeToProjectWorkflow(projectId, () => {
+            scheduleProjectWorkflowBroadcast(projectId)
+          })
+          projectWorkflowDbSubscriptions.set(projectId, unsubscribe)
+        }
+      }
+    }
+  }
   const resolvedDiffStore = diffStore ?? {
     getProjectSnapshot: () => ({ status: "unknown", branchName: undefined, defaultBranchName: undefined, hasOriginRemote: undefined, originRepoSlug: undefined, hasUpstream: undefined, aheadCount: undefined, behindCount: undefined, lastFetchedAt: undefined, files: [] as const, branchHistory: { entries: [] as const } }),
     refreshSnapshot: async () => false,
@@ -1840,6 +1875,7 @@ export function createWsRouter({
     },
     handleClose(ws: ServerWebSocket<ClientState>) {
       sockets.delete(ws)
+      syncProjectWorkflowDbSubscriptions()
     },
     broadcastSnapshots,
     broadcastChatStateImmediately,
@@ -1865,6 +1901,7 @@ export function createWsRouter({
         const snapshotSignatures = ensureSnapshotSignatures(ws)
         ws.data.subscriptions.set(parsed.id, parsed.topic)
         snapshotSignatures.delete(parsed.id)
+        syncProjectWorkflowDbSubscriptions()
         if (parsed.topic.type === "local-projects") {
           void refreshDiscovery().then(() => {
             if (ws.data.subscriptions.has(parsed.id)) {
@@ -1881,6 +1918,7 @@ export function createWsRouter({
         const snapshotSignatures = ensureSnapshotSignatures(ws)
         ws.data.subscriptions.delete(parsed.id)
         snapshotSignatures.delete(parsed.id)
+        syncProjectWorkflowDbSubscriptions()
         send(ws, { v: PROTOCOL_VERSION, type: "ack", id: parsed.id })
         return
       }
@@ -1891,6 +1929,14 @@ export function createWsRouter({
       if (pendingBroadcastTimer) {
         clearTimeout(pendingBroadcastTimer)
       }
+      for (const unsubscribe of projectWorkflowDbSubscriptions.values()) {
+        try {
+          unsubscribe()
+        } catch (err) {
+          console.error("[ws-router] failed to unsubscribe during dispose", err)
+        }
+      }
+      projectWorkflowDbSubscriptions.clear()
       agent.setBackgroundErrorReporter?.(null)
       disposeTerminalEvents()
       disposeKeybindingEvents()

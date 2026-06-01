@@ -22,6 +22,7 @@ export interface WorkflowEventRecord {
 
 export interface WorkflowRuntimeStore {
   getProjectProjection(projectId: string): Promise<WorkflowRunProjection | null>
+  subscribeToProjectWorkflow?(projectId: string, callback: () => void): () => void
   listDefinitions?(projectId: string): Promise<WorkflowDefinitionSummary[]>
   listRuns?(projectId: string, limit?: number): Promise<Array<{
     id: string
@@ -58,6 +59,10 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
     const projection = createSeedWorkflowProjection(projectId)
     this.projectionsByProjectId.set(projectId, projection)
     return projection
+  }
+
+  subscribeToProjectWorkflow(projectId: string, callback: () => void): () => void {
+    return () => {}
   }
 
   async listRuns(projectId: string): Promise<Array<{
@@ -268,6 +273,44 @@ export class SupabaseWorkflowRuntimeStore implements WorkflowRuntimeStore {
   private warned = false
 
   constructor(private readonly client: SupabaseRuntimeClient) {}
+
+  subscribeToProjectWorkflow(projectId: string, callback: () => void): () => void {
+    const channel = this.client
+      .channel(`project-workflow-sync-${projectId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "workflow_runs", filter: `project_id=eq.${projectId}` },
+        () => {
+          callback()
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "artifacts", filter: `project_id=eq.${projectId}` },
+        () => {
+          callback()
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "workflow_nodes" },
+        () => {
+          callback()
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "artifact_impacts" },
+        () => {
+          callback()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      void channel.unsubscribe()
+    }
+  }
 
   async listDefinitions(projectId: string): Promise<WorkflowDefinitionSummary[]> {
     await this.ensureWorkflowDefinition(projectId)

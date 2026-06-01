@@ -154,12 +154,14 @@ describe("rightSidebarStore", () => {
 
     expect(useRightSidebarStore.getState().projectUi[PROJECT_ID]).toEqual({
       viewMode: "changes",
+      workflowDensityMode: "normal",
       summary: "feat: one",
       description: "body",
       collapsedPaths: { "a.ts": false },
     })
     expect(useRightSidebarStore.getState().projectUi["project-2"]).toEqual({
       viewMode: "history",
+      workflowDensityMode: "normal",
       summary: "feat: two",
       description: "",
       collapsedPaths: {},
@@ -195,6 +197,7 @@ describe("rightSidebarStore", () => {
       projectUi: {
         [PROJECT_ID]: {
           viewMode: "changes",
+          workflowDensityMode: "normal",
           collapsedPaths: { "a.ts": false },
           summary: "feat: one",
           description: "body",

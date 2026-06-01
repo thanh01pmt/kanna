@@ -7,6 +7,7 @@ export interface ProjectRightSidebarVisibilityState {
 
 export interface ProjectRightSidebarUiState {
   viewMode: "changes" | "history"
+  workflowDensityMode: "compact" | "normal" | "expanded"
   collapsedPaths: Record<string, boolean>
   summary: string
   description: string
@@ -34,6 +35,7 @@ interface RightSidebarState {
   reconcileCollapsedPaths: (projectId: string, paths: string[]) => void
   toggleCollapsedPath: (projectId: string, path: string) => void
   setViewMode: (projectId: string, viewMode: ProjectRightSidebarUiState["viewMode"]) => void
+  setWorkflowDensityMode: (projectId: string, densityMode: ProjectRightSidebarUiState["workflowDensityMode"]) => void
   setCommitDraft: (projectId: string, draft: Pick<ProjectRightSidebarUiState, "summary" | "description">) => void
   clearCommitDraft: (projectId: string) => void
   clearProject: (projectId: string) => void
@@ -56,6 +58,7 @@ function createDefaultProjectVisibilityState(): ProjectRightSidebarVisibilitySta
 function createDefaultProjectUiState(): ProjectRightSidebarUiState {
   return {
     viewMode: "history",
+    workflowDensityMode: "normal",
     collapsedPaths: {},
     summary: "",
     description: "",
@@ -286,6 +289,19 @@ export const useRightSidebarStore = create<RightSidebarState>()(
             [projectId]: {
               ...current,
               viewMode,
+            },
+          },
+        }
+      }),
+      setWorkflowDensityMode: (projectId, densityMode) => set((state) => {
+        const current = state.projectUi[projectId] ?? createDefaultProjectUiState()
+        if (current.workflowDensityMode === densityMode) return state
+        return {
+          projectUi: {
+            ...state.projectUi,
+            [projectId]: {
+              ...current,
+              workflowDensityMode: densityMode,
             },
           },
         }
