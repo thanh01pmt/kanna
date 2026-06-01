@@ -2,12 +2,43 @@ import { readFile, readdir, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 
+interface ProjectFileEntry {
+  path: string
+  type: "file" | "directory"
+}
+
+async function listProjectFiles(projectPath: string): Promise<ProjectFileEntry[]> {
+  const entries: ProjectFileEntry[] = []
+
+  async function walk(dir: string) {
+    let dirEntries
+    try {
+      dirEntries = await readdir(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+
+    for (const entry of dirEntries) {
+      const fullPath = path.join(dir, entry.name)
+      const relativePath = path.relative(projectPath, fullPath)
+
+      if (entry.isDirectory()) {
+        entries.push({ path: relativePath, type: "directory" })
+        await walk(fullPath)
+      } else if (entry.isFile() || entry.isSymbolicLink()) {
+        entries.push({ path: relativePath, type: "file" })
+      }
+    }
+  }
+
+  await walk(projectPath)
+  return entries.sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: "base", numeric: true }))
+}
+
 async function listMarkdownFiles(projectPath: string): Promise<string[]> {
   const files: string[] = []
   
   async function walk(dir: string, depth = 0) {
-    if (depth > 5) return
-    
     let entries;
     try {
       entries = await readdir(dir, { withFileTypes: true })
@@ -20,7 +51,6 @@ async function listMarkdownFiles(projectPath: string): Promise<string[]> {
       const relativePath = path.relative(projectPath, fullPath)
 
       if (
-        entry.name.startsWith(".") ||
         entry.name === "node_modules" ||
         entry.name === "dist" ||
         entry.name === "build" ||
@@ -44,30 +74,30 @@ async function listMarkdownFiles(projectPath: string): Promise<string[]> {
   return files.sort()
 }
 
-async function readMarkdownFile(projectPath: string, relativePath: string): Promise<string> {
-  const safePath = path.resolve(projectPath, relativePath)
-  if (!safePath.startsWith(path.resolve(projectPath))) {
-    throw new Error("Access denied: path is outside the project directory")
-  }
-  return await readFile(safePath, "utf-8")
-}
-
-async function writeMarkdownFile(projectPath: string, relativePath: string, content: string): Promise<{ ok: true }> {
+function resolveProjectPath(projectPath: string, relativePath: string): string {
   const projectRoot = path.resolve(projectPath)
   const safePath = path.resolve(projectRoot, relativePath)
-  const ext = path.extname(safePath).toLowerCase()
 
   if (safePath !== projectRoot && !safePath.startsWith(`${projectRoot}${path.sep}`)) {
     throw new Error("Access denied: path is outside the project directory")
   }
 
-  if (ext !== ".md" && ext !== ".markdown") {
-    throw new Error("Only Markdown files can be edited here")
-  }
+  return safePath
+}
 
+async function readProjectFile(projectPath: string, relativePath: string): Promise<string> {
+  const safePath = resolveProjectPath(projectPath, relativePath)
+  return await readFile(safePath, "utf-8")
+}
+
+async function writeProjectFile(projectPath: string, relativePath: string, content: string): Promise<{ ok: true }> {
+  const safePath = resolveProjectPath(projectPath, relativePath)
   await writeFile(safePath, content, "utf-8")
   return { ok: true }
 }
+
+const readMarkdownFile = readProjectFile
+const writeMarkdownFile = writeProjectFile
 import type { ServerWebSocket } from "bun"
 import { PROTOCOL_VERSION } from "@kanna/shared/types"
 import type { ClientEnvelope, ServerEnvelope, SubscriptionTopic } from "@kanna/shared/protocol"
@@ -1129,6 +1159,15 @@ export function createWsRouter({
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           return
         }
+        case "project.listFiles": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          const result = await listProjectFiles(project.localPath)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          return
+        }
         case "project.readMarkdownFile": {
           const project = store.getProject(command.projectId)
           if (!project) {
@@ -1138,12 +1177,30 @@ export function createWsRouter({
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           return
         }
+        case "project.readFile": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          const result = await readProjectFile(project.localPath, command.relativePath)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          return
+        }
         case "project.writeMarkdownFile": {
           const project = store.getProject(command.projectId)
           if (!project) {
             throw new Error("Project not found")
           }
           const result = await writeMarkdownFile(project.localPath, command.relativePath, command.content)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          return
+        }
+        case "project.writeFile": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          const result = await writeProjectFile(project.localPath, command.relativePath, command.content)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           return
         }

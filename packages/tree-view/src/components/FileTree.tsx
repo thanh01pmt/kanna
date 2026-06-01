@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useMemo } from "react"
 import { TreeNode } from "../types"
-import { buildTree } from "../utils/treeBuilder"
+import { buildTree, TreeEntry } from "../utils/treeBuilder"
 import { Folder, FolderOpen, FileText, ChevronRight, ChevronDown, Search } from "lucide-react"
 
 interface FileTreeProps {
-  files: string[];
+  files: string[] | TreeEntry[];
   selectedPath: string | null;
   onSelectFile: (path: string) => void;
   kannaTheme?: "light" | "dark";
@@ -25,20 +25,35 @@ export const FileTree: React.FC<FileTreeProps> = ({
   // Filter tree based on search term
   const filteredTree = useMemo(() => {
     if (!searchTerm.trim()) return fullTree
-    const term = searchTerm.toLowerCase()
+    const trimmed = searchTerm.trim()
+    const regexMatch = trimmed.match(/^\/(.+)\/([a-z]*)$/i)
+    const regex = regexMatch
+      ? (() => {
+          try {
+            return new RegExp(regexMatch[1], regexMatch[2])
+          } catch {
+            return null
+          }
+        })()
+      : null
+    const term = trimmed.toLowerCase()
+    const matches = (node: TreeNode) => {
+      const target = `${node.path}\n${node.name}`
+      return regex ? regex.test(target) : node.name.toLowerCase().includes(term) || node.path.toLowerCase().includes(term)
+    }
 
     const filterNode = (nodes: TreeNode[]): TreeNode[] => {
       return nodes
         .map((node) => {
           if (node.type === "file") {
-            return node.name.toLowerCase().includes(term) ? node : null
+            return matches(node) ? node : null
           }
 
           const childMatches = node.children ? filterNode(node.children) : []
-          if (childMatches.length > 0 || node.name.toLowerCase().includes(term)) {
+          if (childMatches.length > 0 || matches(node)) {
             return {
               ...node,
-              children: childMatches,
+              children: childMatches.length > 0 ? childMatches : node.children,
             }
           }
           return null
@@ -168,7 +183,7 @@ export const FileTree: React.FC<FileTreeProps> = ({
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Filter files..."
+            placeholder="Filter files... or /regex/"
             className="w-full pr-3 py-1.5 text-xs rounded-md bg-muted/40 border border-border/60 placeholder:text-muted-foreground/60 text-foreground outline-none focus:border-logo/60 transition-colors"
             style={{ paddingLeft: "2rem" }}
           />

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react"
 import type { KannaSocket } from "../../app/socket"
+import type { ProjectFileEntry } from "@kanna/shared/protocol"
 import { SlideViewer } from "@kanna/slide-viewer"
 import { FileTree } from "@kanna/tree-view"
 import { useTheme } from "../../hooks/useTheme"
@@ -15,6 +16,18 @@ interface MarkdownSlideViewerProps {
   projectId: string
   socket: KannaSocket
   onClose: () => void
+}
+
+function isMarkdownFile(filePath: string | null): boolean {
+  return /\.(md|markdown)$/i.test(filePath || "")
+}
+
+function getPreferredViewMode(filePath: string | null, content: string): "slides" | "document" | "raw" {
+  if (!isMarkdownFile(filePath)) {
+    return "raw"
+  }
+
+  return getMarkdownPreferredViewMode(content)
 }
 
 function getMarkdownPreferredViewMode(markdown: string): "slides" | "document" {
@@ -41,7 +54,7 @@ export function MarkdownSlideViewer({
   onClose,
 }: MarkdownSlideViewerProps) {
   const { resolvedTheme } = useTheme()
-  const [files, setFiles] = useState<string[]>([])
+  const [files, setFiles] = useState<ProjectFileEntry[]>([])
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [markdownContent, setMarkdownContent] = useState<string>("")
   const [savedMarkdownContent, setSavedMarkdownContent] = useState<string>("")
@@ -52,32 +65,33 @@ export function MarkdownSlideViewer({
   const [showTree, setShowTree] = useState(true)
   const hasUnsavedChanges = selectedFile !== null && markdownContent !== savedMarkdownContent
   const preferredViewMode = useMemo(
-    () => getMarkdownPreferredViewMode(markdownContent),
-    [markdownContent],
+    () => getPreferredViewMode(selectedFile, markdownContent),
+    [markdownContent, selectedFile],
   )
 
-  // Fetch all markdown files in active project
+  // Fetch the complete project file tree. Preview mode is decided after a file is selected.
   const loadFiles = useCallback(async () => {
     setIsLoadingFiles(true)
     setError(null)
     try {
-      const result = await socket.command<string[]>({
-        type: "project.listMarkdownFiles",
+      const result = await socket.command<ProjectFileEntry[]>({
+        type: "project.listFiles",
         projectId,
       })
-      const mdFiles = result || []
-      setFiles(mdFiles)
+      const projectFiles = result || []
+      setFiles(projectFiles)
+      const selectableFiles = projectFiles.filter(entry => entry.type === "file")
       
       // Auto-select first file if none currently selected or selected file is no longer available
-      if (mdFiles.length > 0) {
-        if (!selectedFile || !mdFiles.includes(selectedFile)) {
-          setSelectedFile(mdFiles[0])
+      if (selectableFiles.length > 0) {
+        if (!selectedFile || !selectableFiles.some(entry => entry.path === selectedFile)) {
+          setSelectedFile(selectableFiles[0].path)
         }
       } else {
         setSelectedFile(null)
       }
     } catch (err: any) {
-      setError(err.message || "Failed to scan markdown files")
+      setError(err.message || "Failed to scan project files")
     } finally {
       setIsLoadingFiles(false)
     }
@@ -89,14 +103,14 @@ export function MarkdownSlideViewer({
     setError(null)
     try {
       const content = await socket.command<string>({
-        type: "project.readMarkdownFile",
+        type: "project.readFile",
         projectId,
         relativePath: filePath,
       })
       setMarkdownContent(content || "")
       setSavedMarkdownContent(content || "")
     } catch (err: any) {
-      setError(err.message || "Failed to read markdown file")
+      setError(err.message || "Failed to read file")
     } finally {
       setIsLoadingContent(false)
     }
@@ -144,14 +158,14 @@ export function MarkdownSlideViewer({
     setError(null)
     try {
       await socket.command({
-        type: "project.writeMarkdownFile",
+        type: "project.writeFile",
         projectId,
         relativePath: selectedFile,
         content: markdownContent,
       })
       setSavedMarkdownContent(markdownContent)
     } catch (err: any) {
-      setError(err.message || "Failed to save markdown file")
+      setError(err.message || "Failed to save file")
     } finally {
       setIsSavingContent(false)
     }
@@ -162,7 +176,7 @@ export function MarkdownSlideViewer({
       return (
         <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground gap-2">
           <Loader2 className="h-6 w-6 animate-spin text-logo" />
-          <p className="text-xs">Reading slide content...</p>
+          <p className="text-xs">Reading file content...</p>
         </div>
       )
     }
@@ -186,9 +200,9 @@ export function MarkdownSlideViewer({
     return (
       <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-muted-foreground">
         <Play className="h-10 w-10 mb-2 opacity-40 animate-pulse text-logo" />
-        <p className="text-sm font-medium">Ready to Present</p>
+        <p className="text-sm font-medium">Ready to Browse</p>
         <p className="text-xs opacity-75 mt-1 max-w-xs">
-          Select any Markdown or Marp slide deck from the file tree to start presenting.
+          Select any file from the tree. Markdown can render as slides or document; other text files open in Raw.
         </p>
       </div>
     )

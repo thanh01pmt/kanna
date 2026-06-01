@@ -41,6 +41,11 @@ export interface ProjectQuickAction {
   command: string
 }
 
+export interface ProjectFileEntry {
+  path: string
+  type: "file" | "directory"
+}
+
 export type SubscriptionTopic =
   | { type: "sidebar" }
   | { type: "local-projects" }
@@ -71,7 +76,10 @@ export type TerminalEvent =
 
 export type ClientCommand =
   | { type: "project.open"; localPath: string }
+  | { type: "project.listFiles"; projectId: string }
   | { type: "project.listMarkdownFiles"; projectId: string }
+  | { type: "project.readFile"; projectId: string; relativePath: string }
+  | { type: "project.writeFile"; projectId: string; relativePath: string; content: string }
   | { type: "project.readMarkdownFile"; projectId: string; relativePath: string }
   | { type: "project.writeMarkdownFile"; projectId: string; relativePath: string; content: string }
   | { type: "project.create"; localPath: string; title: string }

@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from "react"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import { parseMarpMarkdown } from "../utils/marpParser"
 import { SlidePage } from "./SlidePage"
 import { ImageModal } from "./ImageModal"
@@ -19,13 +21,95 @@ import {
 interface SlideViewerProps {
   markdown: string;
   kannaTheme?: "light" | "dark"; // Default is dark
-  preferredViewMode?: "slides" | "document";
+  preferredViewMode?: "slides" | "document" | "raw";
   contentIdentity?: string;
   rawFileName?: string | null;
   hasUnsavedChanges?: boolean;
   isSavingMarkdown?: boolean;
   onMarkdownChange?: (markdown: string) => void;
   onSaveMarkdown?: () => void | Promise<void>;
+}
+
+const documentMarkdownComponents = {
+  h1: ({ children }: any) => (
+    <h1 className="mb-3 text-2xl font-semibold tracking-tight text-foreground">{children}</h1>
+  ),
+  h2: ({ children }: any) => (
+    <h2 className="mb-2.5 mt-5 text-xl font-semibold tracking-tight text-foreground first:mt-0">{children}</h2>
+  ),
+  h3: ({ children }: any) => (
+    <h3 className="mb-2 mt-4 text-base font-semibold text-foreground first:mt-0">{children}</h3>
+  ),
+  h4: ({ children }: any) => (
+    <h4 className="mb-1.5 mt-3 text-sm font-semibold text-foreground first:mt-0">{children}</h4>
+  ),
+  p: ({ children }: any) => (
+    <p className="mb-3 leading-7 text-foreground/86 last:mb-0">{children}</p>
+  ),
+  ul: ({ children }: any) => (
+    <ul className="mb-4 list-disc space-y-1.5 pl-6 text-foreground/86">{children}</ul>
+  ),
+  ol: ({ children }: any) => (
+    <ol className="mb-4 list-decimal space-y-1.5 pl-6 text-foreground/86">{children}</ol>
+  ),
+  li: ({ children }: any) => (
+    <li className="leading-7">{children}</li>
+  ),
+  blockquote: ({ children }: any) => (
+    <blockquote className="my-4 rounded-r-lg border-l-4 border-logo/60 bg-muted/30 py-2 pl-4 pr-3 text-muted-foreground">
+      {children}
+    </blockquote>
+  ),
+  code: ({ children, className }: any) => {
+    const isInline = !className
+    if (isInline) {
+      return (
+        <code className="rounded-md border border-border/60 bg-muted/60 px-1.5 py-0.5 font-mono text-[0.86em] text-foreground">
+          {children}
+        </code>
+      )
+    }
+    return <code className={className}>{children}</code>
+  },
+  pre: ({ children }: any) => (
+    <pre className="my-4 overflow-x-auto rounded-xl border border-border/70 bg-muted/35 p-4 text-xs leading-relaxed">
+      {children}
+    </pre>
+  ),
+  table: ({ children }: any) => (
+    <div className="my-4 overflow-x-auto rounded-xl border border-border/70">
+      <table className="min-w-full border-collapse text-left text-sm">
+        {children}
+      </table>
+    </div>
+  ),
+  th: ({ children }: any) => (
+    <th className="border-b border-border/70 bg-muted/45 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      {children}
+    </th>
+  ),
+  td: ({ children }: any) => (
+    <td className="border-b border-border/50 px-3 py-2 align-top text-foreground/86 last:border-b-0">
+      {children}
+    </td>
+  ),
+  img: ({ src, alt }: any) => (
+    <img
+      src={src}
+      alt={alt}
+      className="my-4 max-h-[420px] max-w-full cursor-zoom-in rounded-xl border border-border/70 object-contain shadow-sm transition-opacity hover:opacity-90"
+    />
+  ),
+  hr: () => <hr className="my-6 border-border/70" />,
+}
+
+function getSectionTitle(content: string, fallback: string): string {
+  const heading = content
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .find(line => /^#{1,3}\s+/.test(line))
+
+  return heading ? heading.replace(/^#{1,3}\s+/, "").trim() : fallback
 }
 
 export const SlideViewer: React.FC<SlideViewerProps> = ({
@@ -63,12 +147,14 @@ export const SlideViewer: React.FC<SlideViewerProps> = ({
   const settingsRef = useRef<HTMLDivElement>(null)
   const lastRawFileNameRef = useRef<string | null | undefined>(rawFileName)
   const lastContentIdentityRef = useRef<string | undefined>(contentIdentity)
+  const canShowSlides = preferredViewMode === "slides"
+  const canShowDocument = preferredViewMode !== "raw"
 
   useEffect(() => {
     let cancelled = false
     const content = markdown.trim()
 
-    if (!content) {
+    if (!canShowSlides || !content) {
       setMarpPresentation({ css: "", slides: [], error: null, isLoading: false })
       return
     }
@@ -108,7 +194,7 @@ export const SlideViewer: React.FC<SlideViewerProps> = ({
     return () => {
       cancelled = true
     }
-  }, [markdown])
+  }, [canShowSlides, markdown])
 
   // Initialize theme from global directives if present
   useEffect(() => {
@@ -250,28 +336,32 @@ export const SlideViewer: React.FC<SlideViewerProps> = ({
       <div className="flex items-center justify-between border-b border-border/80 px-4 py-2.5 bg-card">
         {/* Segmented Control for View Mode */}
         <div className="inline-flex items-center rounded-lg border border-border p-[3px] bg-muted/20">
-          <button
-            onClick={() => setViewMode("slides")}
-            className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-all ${
-              viewMode === "slides"
-                ? "bg-white dark:bg-muted border border-border shadow-sm text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Presentation className="h-3.5 w-3.5" />
-            Slides
-          </button>
-          <button
-            onClick={() => setViewMode("document")}
-            className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-all ${
-              viewMode === "document"
-                ? "bg-white dark:bg-muted border border-border shadow-sm text-foreground"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <FileText className="h-3.5 w-3.5" />
-            Document
-          </button>
+          {canShowSlides ? (
+            <button
+              onClick={() => setViewMode("slides")}
+              className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-all ${
+                viewMode === "slides"
+                  ? "bg-white dark:bg-muted border border-border shadow-sm text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Presentation className="h-3.5 w-3.5" />
+              Slides
+            </button>
+          ) : null}
+          {canShowDocument ? (
+            <button
+              onClick={() => setViewMode("document")}
+              className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-all ${
+                viewMode === "document"
+                  ? "bg-white dark:bg-muted border border-border shadow-sm text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <FileText className="h-3.5 w-3.5" />
+              Document
+            </button>
+          ) : null}
           <button
             onClick={() => setViewMode("raw")}
             className={`flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded-md transition-all ${
@@ -496,6 +586,60 @@ export const SlideViewer: React.FC<SlideViewerProps> = ({
           </div>
         ) : viewMode === "document" ? (
           /* Document continuous Mode */
+          canShowSlides ? (
+            <div className="w-full max-w-4xl py-4">
+              <div className="mb-5 rounded-2xl border border-border/80 bg-card/70 p-5 shadow-sm">
+                <div className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-logo/90">Marp Document</div>
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                  {String(globalDirectives.title || rawFileName?.split("/").pop() || "Slide deck")}
+                </h1>
+                <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                  <span>{slides.length} sections</span>
+                  {globalDirectives.type ? <span>Type: {String(globalDirectives.type)}</span> : null}
+                  {globalDirectives.version ? <span>Version: {String(globalDirectives.version)}</span> : null}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-4">
+                {slides.length > 0 ? slides.map((slide, idx) => (
+                  <section key={idx} className="overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm">
+                    <div className="flex items-center justify-between gap-3 border-b border-border/70 bg-muted/20 px-4 py-2.5">
+                      <div className="min-w-0">
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                          Slide {idx + 1} of {slides.length}
+                        </div>
+                        <div className="truncate text-sm font-medium text-foreground/90">
+                          {getSectionTitle(slide.content, `Section ${idx + 1}`)}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="px-5 py-5 text-[15px]">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          ...documentMarkdownComponents,
+                          img: ({ src, alt }: any) => (
+                            <img
+                              src={src}
+                              alt={alt}
+                              className="my-4 max-h-[420px] max-w-full cursor-zoom-in rounded-xl border border-border/70 object-contain shadow-sm transition-opacity hover:opacity-90"
+                              onClick={() => src && handleImageClick(src, alt)}
+                            />
+                          ),
+                        }}
+                      >
+                        {slide.content}
+                      </ReactMarkdown>
+                    </div>
+                  </section>
+                )) : (
+                  <div className="rounded-xl border border-border/80 bg-card p-6 text-center text-xs text-muted-foreground">
+                    No document content to display.
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
           <div className="w-full max-w-3xl flex flex-col gap-6 py-4">
             {slides.length > 0 ? slides.map((slide, idx) => (
               <div key={idx} className="relative group/slide-card">
@@ -520,6 +664,7 @@ export const SlideViewer: React.FC<SlideViewerProps> = ({
               </div>
             )}
           </div>
+          )
         ) : (
           <div className="flex h-full min-h-0 w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm">
             <div className="flex items-center justify-between border-b border-border/70 px-3 py-2">
