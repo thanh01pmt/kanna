@@ -160,13 +160,17 @@ export const FileTree: React.FC<FileTreeProps> = ({
       {/* Search Header */}
       <div className="p-3 border-b border-border/60">
         <div className="relative flex items-center">
-          <Search className="absolute left-2.5 h-3.5 w-3.5 text-muted-foreground/75" />
+          <Search 
+            className="absolute h-3.5 w-3.5 text-muted-foreground/75 pointer-events-none" 
+            style={{ left: "0.625rem" }} 
+          />
           <input
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Filter files..."
-            className="w-full pl-8 pr-3 py-1.5 text-xs rounded-md bg-muted/40 border border-border/60 placeholder:text-muted-foreground/60 text-foreground outline-none focus:border-logo/60 transition-colors"
+            className="w-full pr-3 py-1.5 text-xs rounded-md bg-muted/40 border border-border/60 placeholder:text-muted-foreground/60 text-foreground outline-none focus:border-logo/60 transition-colors"
+            style={{ paddingLeft: "2rem" }}
           />
         </div>
       </div>

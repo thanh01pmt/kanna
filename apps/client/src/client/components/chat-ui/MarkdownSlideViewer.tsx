@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react"
+import React, { useState, useEffect, useCallback, useMemo } from "react"
 import type { KannaSocket } from "../../app/socket"
 import { SlideViewer } from "@kanna/slide-viewer"
 import { FileTree } from "@kanna/tree-view"
@@ -17,6 +17,24 @@ interface MarkdownSlideViewerProps {
   onClose: () => void
 }
 
+function getMarkdownPreferredViewMode(markdown: string): "slides" | "document" {
+  const frontmatterMatch = markdown.match(/^---\s*\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)
+  if (!frontmatterMatch) {
+    return "document"
+  }
+
+  const marpLine = frontmatterMatch[1]
+    .split(/\r?\n/)
+    .find(line => /^\s*marp\s*:/i.test(line))
+
+  if (!marpLine) {
+    return "document"
+  }
+
+  const rawValue = marpLine.split(":").slice(1).join(":").trim().replace(/^["']|["']$/g, "")
+  return rawValue.toLowerCase() === "true" ? "slides" : "document"
+}
+
 export function MarkdownSlideViewer({
   projectId,
   socket,
@@ -26,10 +44,17 @@ export function MarkdownSlideViewer({
   const [files, setFiles] = useState<string[]>([])
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
   const [markdownContent, setMarkdownContent] = useState<string>("")
+  const [savedMarkdownContent, setSavedMarkdownContent] = useState<string>("")
   const [isLoadingFiles, setIsLoadingFiles] = useState(false)
   const [isLoadingContent, setIsLoadingContent] = useState(false)
+  const [isSavingContent, setIsSavingContent] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showTree, setShowTree] = useState(true)
+  const hasUnsavedChanges = selectedFile !== null && markdownContent !== savedMarkdownContent
+  const preferredViewMode = useMemo(
+    () => getMarkdownPreferredViewMode(markdownContent),
+    [markdownContent],
+  )
 
   // Fetch all markdown files in active project
   const loadFiles = useCallback(async () => {
@@ -69,6 +94,7 @@ export function MarkdownSlideViewer({
         relativePath: filePath,
       })
       setMarkdownContent(content || "")
+      setSavedMarkdownContent(content || "")
     } catch (err: any) {
       setError(err.message || "Failed to read markdown file")
     } finally {
@@ -87,8 +113,49 @@ export function MarkdownSlideViewer({
       loadContent(selectedFile)
     } else {
       setMarkdownContent("")
+      setSavedMarkdownContent("")
     }
   }, [selectedFile, loadContent])
+
+  const handleSelectFile = useCallback((filePath: string) => {
+    if (filePath === selectedFile) {
+      return
+    }
+
+    if (hasUnsavedChanges) {
+      const shouldDiscard = window.confirm("You have unsaved Raw edits. Switch files and discard them?")
+      if (!shouldDiscard) {
+        return
+      }
+    }
+
+    setIsLoadingContent(true)
+    setMarkdownContent("")
+    setSavedMarkdownContent("")
+    setSelectedFile(filePath)
+  }, [hasUnsavedChanges, selectedFile])
+
+  const handleSaveMarkdown = useCallback(async () => {
+    if (!selectedFile || !hasUnsavedChanges || isSavingContent) {
+      return
+    }
+
+    setIsSavingContent(true)
+    setError(null)
+    try {
+      await socket.command({
+        type: "project.writeMarkdownFile",
+        projectId,
+        relativePath: selectedFile,
+        content: markdownContent,
+      })
+      setSavedMarkdownContent(markdownContent)
+    } catch (err: any) {
+      setError(err.message || "Failed to save markdown file")
+    } finally {
+      setIsSavingContent(false)
+    }
+  }, [hasUnsavedChanges, isSavingContent, markdownContent, projectId, selectedFile, socket])
 
   const renderContentArea = () => {
     if (isLoadingContent) {
@@ -101,7 +168,19 @@ export function MarkdownSlideViewer({
     }
 
     if (selectedFile) {
-      return <SlideViewer markdown={markdownContent} kannaTheme={resolvedTheme} />
+      return (
+        <SlideViewer
+          markdown={markdownContent}
+          kannaTheme={resolvedTheme}
+          preferredViewMode={preferredViewMode}
+          contentIdentity={`${selectedFile}:${savedMarkdownContent}`}
+          rawFileName={selectedFile}
+          hasUnsavedChanges={hasUnsavedChanges}
+          isSavingMarkdown={isSavingContent}
+          onMarkdownChange={setMarkdownContent}
+          onSaveMarkdown={handleSaveMarkdown}
+        />
+      )
     }
 
     return (
@@ -188,7 +267,7 @@ export function MarkdownSlideViewer({
                   <FileTree
                     files={files}
                     selectedPath={selectedFile}
-                    onSelectFile={setSelectedFile}
+                    onSelectFile={handleSelectFile}
                     kannaTheme={resolvedTheme}
                   />
                 </div>

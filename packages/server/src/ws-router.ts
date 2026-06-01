@@ -1,4 +1,4 @@
-import { readFile, readdir } from "node:fs/promises"
+import { readFile, readdir, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 
@@ -50,6 +50,23 @@ async function readMarkdownFile(projectPath: string, relativePath: string): Prom
     throw new Error("Access denied: path is outside the project directory")
   }
   return await readFile(safePath, "utf-8")
+}
+
+async function writeMarkdownFile(projectPath: string, relativePath: string, content: string): Promise<{ ok: true }> {
+  const projectRoot = path.resolve(projectPath)
+  const safePath = path.resolve(projectRoot, relativePath)
+  const ext = path.extname(safePath).toLowerCase()
+
+  if (safePath !== projectRoot && !safePath.startsWith(`${projectRoot}${path.sep}`)) {
+    throw new Error("Access denied: path is outside the project directory")
+  }
+
+  if (ext !== ".md" && ext !== ".markdown") {
+    throw new Error("Only Markdown files can be edited here")
+  }
+
+  await writeFile(safePath, content, "utf-8")
+  return { ok: true }
 }
 import type { ServerWebSocket } from "bun"
 import { PROTOCOL_VERSION } from "@kanna/shared/types"
@@ -1118,6 +1135,15 @@ export function createWsRouter({
             throw new Error("Project not found")
           }
           const result = await readMarkdownFile(project.localPath, command.relativePath)
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          return
+        }
+        case "project.writeMarkdownFile": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          const result = await writeMarkdownFile(project.localPath, command.relativePath, command.content)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           return
         }

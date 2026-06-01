@@ -32,6 +32,16 @@
   transition: opacity 0.2s ease-in-out;
 }
 
+.kanna-marp-slide svg[data-marpit-svg] {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.kanna-marp-slide foreignObject {
+  display: block;
+}
+
 /* Print support to export slides to PDF later */
 @media print {
   .slide-container {

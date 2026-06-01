@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@source "../../../packages/tree-view/src/**/*.tsx";
 @custom-variant dark (&:where(.dark, .dark *));
 
 @font-face {

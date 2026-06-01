@@ -45,7 +45,7 @@ export const SlidePage: React.FC<SlidePageProps> = ({
     appearance === "dark" || (appearance === "auto" && kannaTheme === "dark");
 
   // Determine slide background and color from directives or defaults
-  const customBg = slide.directives.bg;
+  const customBg = slide.directives.bg ?? slide.directives.backgroundColor;
   const customColor = slide.directives.color;
 
   // Build inline styles
