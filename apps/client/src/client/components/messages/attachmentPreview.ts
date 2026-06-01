@@ -32,6 +32,7 @@ export type AttachmentIconKind =
 export type AttachmentPreviewKind =
   | "image"
   | "pdf"
+  | "html"
   | "markdown"
   | "text"
   | "json"
@@ -56,33 +57,52 @@ export interface TablePreviewData {
   truncatedColumns: boolean
 }
 
-export function classifyAttachmentPreview(attachment: ChatAttachment): AttachmentPreviewTarget {
-  const mimeType = attachment.mimeType.toLowerCase()
-  const extension = getFileExtension(attachment.displayName)
+interface AttachmentMatchContext {
+  mimeType: string
+  extension: string
+  size: number
+}
 
-  if (mimeType.startsWith("image/")) {
-    return { kind: "image", openInNewTab: false }
+interface PreviewRule {
+  match: (ctx: AttachmentMatchContext) => boolean
+  target: AttachmentPreviewTarget
+}
+
+const PREVIEW_RULES: PreviewRule[] = [
+  { match: (ctx) => ctx.mimeType.startsWith("image/"), target: { kind: "image", openInNewTab: false } },
+  { match: (ctx) => ctx.mimeType === "application/pdf", target: { kind: "pdf", openInNewTab: false } },
+  {
+    match: (ctx) => ctx.mimeType === "application/json",
+    target: { kind: "json", openInNewTab: false },
+  },
+  {
+    match: (ctx) => ctx.mimeType === "text/html" || ctx.extension === ".html" || ctx.extension === ".htm",
+    target: { kind: "html", openInNewTab: false },
+  },
+  { match: (ctx) => ctx.extension === ".md", target: { kind: "markdown", openInNewTab: false } },
+  {
+    match: (ctx) => ctx.mimeType === "text/csv" || ctx.mimeType === "text/tab-separated-values",
+    target: { kind: "table", openInNewTab: false },
+  },
+  { match: (ctx) => ctx.mimeType.startsWith("text/"), target: { kind: "text", openInNewTab: false } },
+  { match: (ctx) => CODE_OR_CONFIG_EXTENSIONS.has(ctx.extension), target: { kind: "text", openInNewTab: false } },
+]
+
+export function classifyAttachmentPreview(attachment: ChatAttachment): AttachmentPreviewTarget {
+  const ctx: AttachmentMatchContext = {
+    mimeType: attachment.mimeType.toLowerCase(),
+    extension: getFileExtension(attachment.displayName),
+    size: attachment.size,
   }
-  if (mimeType === "application/pdf") {
-    return { kind: "pdf", openInNewTab: false }
+
+  for (const rule of PREVIEW_RULES) {
+    if (!rule.match(ctx)) continue
+    if (rule.target.kind === "json" && ctx.size > JSON_PREVIEW_LIMIT_BYTES) {
+      return { kind: "external", openInNewTab: true }
+    }
+    return rule.target
   }
-  if (mimeType === "application/json") {
-    return attachment.size <= JSON_PREVIEW_LIMIT_BYTES
-      ? { kind: "json", openInNewTab: false }
-      : { kind: "external", openInNewTab: true }
-  }
-  if (extension === ".md") {
-    return { kind: "markdown", openInNewTab: false }
-  }
-  if (mimeType === "text/csv" || mimeType === "text/tab-separated-values") {
-    return { kind: "table", openInNewTab: false }
-  }
-  if (mimeType.startsWith("text/")) {
-    return { kind: "text", openInNewTab: false }
-  }
-  if (CODE_OR_CONFIG_EXTENSIONS.has(extension)) {
-    return { kind: "text", openInNewTab: false }
-  }
+
   return { kind: "external", openInNewTab: true }
 }
 

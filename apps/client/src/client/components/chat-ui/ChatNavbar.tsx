@@ -1,5 +1,5 @@
 import { type MouseEvent as ReactMouseEvent } from "react"
-import { Check, Flower, GitBranch, Globe, Loader2, Menu, MoreHorizontal, PanelLeft, PanelRight, Presentation, SquarePen, Terminal, UserRoundPlus } from "lucide-react"
+import { Check, Flower, GitBranch, Globe, Layers3, Loader2, Menu, MoreHorizontal, PanelLeft, PanelRight, Presentation, SquarePen, Terminal, UserRoundPlus } from "lucide-react"
 import type { EditorOpenSettings, EditorPreset, OpenExternalAction } from "@kanna/shared/protocol"
 import { Button } from "../ui/button"
 import { CardHeader } from "../ui/card"
@@ -98,10 +98,11 @@ interface Props {
   localPath?: string
   embeddedTerminalVisible?: boolean
   onToggleEmbeddedTerminal?: () => void
-  rightPanel?: "hidden" | "git" | "browser" | "slides"
+  rightPanel?: "hidden" | "git" | "browser" | "slides" | "workflow"
   onToggleGitPanel?: () => void
   onToggleBrowserPanel?: () => void
   onToggleSlidesPanel?: () => void
+  onToggleWorkflowPanel?: () => void
   onOpenExternal?: (action: OpenExternalAction, editor?: EditorOpenSettings) => void
   onExportTranscript?: () => void
   canExportTranscript?: boolean
@@ -131,6 +132,7 @@ export function ChatNavbar({
   onToggleGitPanel,
   onToggleBrowserPanel,
   onToggleSlidesPanel,
+  onToggleWorkflowPanel,
   onOpenExternal,
   onExportTranscript,
   canExportTranscript = false,
@@ -158,10 +160,12 @@ export function ChatNavbar({
     rightPanel === "browser" ? onToggleBrowserPanel :
     rightPanel === "git" ? onToggleGitPanel :
     rightPanel === "slides" ? onToggleSlidesPanel :
+    rightPanel === "workflow" ? onToggleWorkflowPanel :
     undefined
-  const showBrowserPanelButton = rightPanel === "hidden" || rightPanel === "git" || rightPanel === "slides"
-  const showGitPanelButton = rightPanel === "hidden" || rightPanel === "browser" || rightPanel === "slides"
-  const showSlidesPanelButton = rightPanel === "hidden" || rightPanel === "browser" || rightPanel === "git"
+  const showBrowserPanelButton = rightPanel === "hidden" || rightPanel === "git" || rightPanel === "slides" || rightPanel === "workflow"
+  const showGitPanelButton = rightPanel === "hidden" || rightPanel === "browser" || rightPanel === "slides" || rightPanel === "workflow"
+  const showSlidesPanelButton = rightPanel === "hidden" || rightPanel === "browser" || rightPanel === "git" || rightPanel === "workflow"
+  const showWorkflowPanelButton = rightPanel === "hidden" || rightPanel === "browser" || rightPanel === "git" || rightPanel === "slides"
 
   return (
     <CardHeader
@@ -210,7 +214,7 @@ export function ChatNavbar({
 
         <div className="flex-1 min-w-0" />
 
-        {localPath && (onOpenExternal || onToggleEmbeddedTerminal || onToggleGitPanel || onToggleBrowserPanel || onExportTranscript) ? (
+        {localPath && (onOpenExternal || onToggleEmbeddedTerminal || onToggleGitPanel || onToggleBrowserPanel || onToggleWorkflowPanel || onExportTranscript) ? (
           <div className="flex items-center gap-2 flex-shrink-0">
             {onOpenExternal ? (
               <div className="hidden md:block border border-border/70 rounded-[9px] backdrop-blur-lg">
@@ -224,7 +228,7 @@ export function ChatNavbar({
                 />
               </div>
             ) : null}
-            {(onToggleEmbeddedTerminal || onToggleGitPanel || onToggleBrowserPanel || onExportTranscript) ? (
+            {(onToggleEmbeddedTerminal || onToggleGitPanel || onToggleBrowserPanel || onToggleWorkflowPanel || onExportTranscript) ? (
               <div className="flex items-center  rounded-[9px] h-[30px]">
                 <NavbarOverflowMenu
                   showOnDesktop={rightPanelVisible}
@@ -301,6 +305,20 @@ export function ChatNavbar({
                     )}
                   >
                     <Presentation strokeWidth={2.25} className="h-4" />
+                  </Button>
+                ) : null}
+                {onToggleWorkflowPanel && showWorkflowPanelButton ? (
+                  <Button
+                    variant="ghost"
+                    size="none"
+                    onClick={onToggleWorkflowPanel}
+                    title="Workflow"
+                    aria-label="Workflow"
+                    className={cn(
+                      "border border-border/0 hover:!border-border/0 px-1.5 h-9 hover:!bg-transparent"
+                    )}
+                  >
+                    <Layers3 strokeWidth={2.25} className="h-4" />
                   </Button>
                 ) : null}
                 {onToggleGitPanel && showGitPanelButton ? (

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "kanna-workflow": {
+      "command": "bun",
+      "args": ["packages/mcp/src/index.ts"]
+    }
+  }
+}

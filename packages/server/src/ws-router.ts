@@ -116,6 +116,8 @@ import { ensureProjectDirectory, resolveLocalPath } from "./paths"
 import { readProjectQuickActions, writeProjectQuickActions } from "./project-quick-actions"
 import { writeStandaloneTranscriptExport } from "./standalone-export"
 import { TerminalManager } from "./terminal-manager"
+import { createDefaultWorkflowRuntimeStore } from "./workflow-runtime-store"
+import type { WorkflowRuntimeStore } from "./workflow-runtime-store"
 import type { UpdateManager } from "./update-manager"
 import { deriveChatSnapshot, deriveLocalProjectsSnapshot, deriveSidebarData } from "./read-models"
 import type {
@@ -158,6 +160,7 @@ function countSubscriptionsByTopic(ws: ServerWebSocket<ClientState>) {
   let sidebar = 0
   let chat = 0
   let projectGit = 0
+  let projectWorkflow = 0
   let localProjects = 0
   let update = 0
   let keybindings = 0
@@ -174,6 +177,9 @@ function countSubscriptionsByTopic(ws: ServerWebSocket<ClientState>) {
         break
       case "project-git":
         projectGit += 1
+        break
+      case "project-workflow":
+        projectWorkflow += 1
         break
       case "local-projects":
         localProjects += 1
@@ -198,6 +204,7 @@ function countSubscriptionsByTopic(ws: ServerWebSocket<ClientState>) {
     sidebar,
     chat,
     projectGit,
+    projectWorkflow,
     localProjects,
     update,
     keybindings,
@@ -229,6 +236,7 @@ interface CreateWsRouterArgs {
   getDiscoveredProjects: () => DiscoveredProject[]
   machineDisplayName: string
   updateManager: UpdateManager | null
+  workflowStore?: WorkflowRuntimeStore
 }
 
 interface SnapshotBroadcastFilter {
@@ -483,11 +491,14 @@ export function createWsRouter({
   getDiscoveredProjects,
   machineDisplayName,
   updateManager,
+  workflowStore,
 }: CreateWsRouterArgs) {
   const sockets = new Set<ServerWebSocket<ClientState>>()
+  const resolvedWorkflowStore = workflowStore ?? createDefaultWorkflowRuntimeStore()
   let pendingBroadcastTimer: ReturnType<typeof setTimeout> | null = null
   let pendingBroadcastAll = false
   const pendingBroadcastChatIds = new Set<string>()
+  const pendingBroadcastProjectIds = new Set<string>()
   const resolvedDiffStore = diffStore ?? {
     getProjectSnapshot: () => ({ status: "unknown", branchName: undefined, defaultBranchName: undefined, hasOriginRemote: undefined, originRepoSlug: undefined, hasUpstream: undefined, aheadCount: undefined, behindCount: undefined, lastFetchedAt: undefined, files: [] as const, branchHistory: { entries: [] as const } }),
     refreshSnapshot: async () => false,
@@ -706,6 +717,9 @@ export function createWsRouter({
     if (topic.type === "project-git") {
       return filter.projectIds?.has(topic.projectId) ?? false
     }
+    if (topic.type === "project-workflow") {
+      return filter.projectIds?.has(topic.projectId) ?? false
+    }
     if (topic.type === "terminal") {
       return filter.terminalIds?.has(topic.terminalId) ?? false
     }
@@ -750,7 +764,7 @@ export function createWsRouter({
     return sidebar
   }
 
-  function createEnvelope(id: string, topic: SubscriptionTopic, cache?: SnapshotComputationCache): ServerEnvelope {
+  async function createEnvelope(id: string, topic: SubscriptionTopic, cache?: SnapshotComputationCache): Promise<ServerEnvelope> {
     if (topic.type === "sidebar") {
       const sidebar = getSidebarSnapshotCacheEntry(cache)
       return {
@@ -850,6 +864,20 @@ export function createWsRouter({
       }
     }
 
+    if (topic.type === "project-workflow") {
+      return {
+        v: PROTOCOL_VERSION,
+        type: "snapshot",
+        id,
+        snapshot: {
+          type: "project-workflow",
+          data: store.getProject(topic.projectId)
+            ? await resolvedWorkflowStore.getProjectProjection(topic.projectId)
+            : null,
+        },
+      }
+    }
+
     return {
       v: PROTOCOL_VERSION,
       type: "snapshot",
@@ -883,7 +911,7 @@ export function createWsRouter({
         continue
       }
       const envelopeStartedAt = performance.now()
-      const envelope = createEnvelope(id, topic, options?.cache)
+      const envelope = await createEnvelope(id, topic, options?.cache)
       const createdAt = performance.now()
       if (envelope.type !== "snapshot") continue
       const signature = topic.type === "sidebar"
@@ -971,6 +999,7 @@ export function createWsRouter({
   function scheduleBroadcast() {
     pendingBroadcastAll = true
     pendingBroadcastChatIds.clear()
+    pendingBroadcastProjectIds.clear()
     if (pendingBroadcastTimer) {
       return
     }
@@ -978,8 +1007,10 @@ export function createWsRouter({
       pendingBroadcastTimer = null
       const shouldBroadcastAll = pendingBroadcastAll
       const chatIds = new Set(pendingBroadcastChatIds)
+      const projectIds = new Set(pendingBroadcastProjectIds)
       pendingBroadcastAll = false
       pendingBroadcastChatIds.clear()
+      pendingBroadcastProjectIds.clear()
       if (shouldBroadcastAll) {
         void broadcastSnapshots()
         return
@@ -988,7 +1019,12 @@ export function createWsRouter({
         void broadcastFilteredSnapshots({
           includeSidebar: true,
           chatIds,
+          projectIds,
         })
+        return
+      }
+      if (projectIds.size > 0) {
+        void broadcastFilteredSnapshots({ projectIds })
       }
     }, 16)
   }
@@ -1004,8 +1040,10 @@ export function createWsRouter({
       pendingBroadcastTimer = null
       const shouldBroadcastAll = pendingBroadcastAll
       const chatIds = new Set(pendingBroadcastChatIds)
+      const projectIds = new Set(pendingBroadcastProjectIds)
       pendingBroadcastAll = false
       pendingBroadcastChatIds.clear()
+      pendingBroadcastProjectIds.clear()
       if (shouldBroadcastAll) {
         void broadcastSnapshots()
         return
@@ -1014,8 +1052,40 @@ export function createWsRouter({
         void broadcastFilteredSnapshots({
           includeSidebar: true,
           chatIds,
+          projectIds,
         })
+        return
       }
+      if (projectIds.size > 0) {
+        void broadcastFilteredSnapshots({ projectIds })
+      }
+    }, 16)
+  }
+
+  function scheduleProjectWorkflowBroadcast(projectId: string) {
+    if (!pendingBroadcastAll) {
+      pendingBroadcastProjectIds.add(projectId)
+    }
+    if (pendingBroadcastTimer) {
+      return
+    }
+    pendingBroadcastTimer = setTimeout(() => {
+      pendingBroadcastTimer = null
+      const shouldBroadcastAll = pendingBroadcastAll
+      const chatIds = new Set(pendingBroadcastChatIds)
+      const projectIds = new Set(pendingBroadcastProjectIds)
+      pendingBroadcastAll = false
+      pendingBroadcastChatIds.clear()
+      pendingBroadcastProjectIds.clear()
+      if (shouldBroadcastAll) {
+        void broadcastSnapshots()
+        return
+      }
+      void broadcastFilteredSnapshots({
+        includeSidebar: chatIds.size > 0,
+        chatIds,
+        projectIds,
+      })
     }, 16)
   }
 
@@ -1040,12 +1110,12 @@ export function createWsRouter({
     }
   }
 
-  function pushTerminalSnapshot(terminalId: string) {
+  async function pushTerminalSnapshot(terminalId: string) {
     for (const ws of sockets) {
       const snapshotSignatures = ensureSnapshotSignatures(ws)
       for (const [id, topic] of ws.data.subscriptions.entries()) {
         if (topic.type !== "terminal" || topic.terminalId !== terminalId) continue
-        const envelope = createEnvelope(id, topic)
+        const envelope = await createEnvelope(id, topic)
         if (envelope.type !== "snapshot") continue
         const signature = JSON.stringify(envelope.snapshot)
         if (snapshotSignatures.get(id) === signature) continue
@@ -1074,11 +1144,12 @@ export function createWsRouter({
   })
 
   const disposeKeybindingEvents = keybindings.onChange(() => {
+    void (async () => {
     for (const ws of sockets) {
       const snapshotSignatures = ensureSnapshotSignatures(ws)
       for (const [id, topic] of ws.data.subscriptions.entries()) {
         if (topic.type !== "keybindings") continue
-        const envelope = createEnvelope(id, topic)
+        const envelope = await createEnvelope(id, topic)
         if (envelope.type !== "snapshot") continue
         const signature = JSON.stringify(envelope.snapshot)
         if (snapshotSignatures.get(id) === signature) continue
@@ -1086,14 +1157,16 @@ export function createWsRouter({
         send(ws, envelope)
       }
     }
+    })()
   })
 
   const disposeAppSettingsEvents = resolvedAppSettings.onChange(() => {
+    void (async () => {
     for (const ws of sockets) {
       const snapshotSignatures = ensureSnapshotSignatures(ws)
       for (const [id, topic] of ws.data.subscriptions.entries()) {
         if (topic.type !== "app-settings") continue
-        const envelope = createEnvelope(id, topic)
+        const envelope = await createEnvelope(id, topic)
         if (envelope.type !== "snapshot") continue
         const signature = JSON.stringify(envelope.snapshot)
         if (snapshotSignatures.get(id) === signature) continue
@@ -1101,14 +1174,16 @@ export function createWsRouter({
         send(ws, envelope)
       }
     }
+    })()
   })
 
   const disposeUpdateEvents = updateManager?.onChange(() => {
+    void (async () => {
     for (const ws of sockets) {
       const snapshotSignatures = ensureSnapshotSignatures(ws)
       for (const [id, topic] of ws.data.subscriptions.entries()) {
         if (topic.type !== "update") continue
-        const envelope = createEnvelope(id, topic)
+        const envelope = await createEnvelope(id, topic)
         if (envelope.type !== "snapshot") continue
         const signature = JSON.stringify(envelope.snapshot)
         if (snapshotSignatures.get(id) === signature) continue
@@ -1116,6 +1191,7 @@ export function createWsRouter({
         send(ws, envelope)
       }
     }
+    })()
   }) ?? (() => {})
 
   agent.setBackgroundErrorReporter?.(broadcastError)
@@ -1220,6 +1296,33 @@ export function createWsRouter({
           }
           const result = await writeProjectQuickActions(project.localPath, command.quickActions)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          return
+        }
+        case "workflow.listDefinitions": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          const result = await resolvedWorkflowStore.listDefinitions?.(command.projectId) ?? []
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          return
+        }
+        case "workflow.startRun": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          if (!resolvedWorkflowStore.startRun) {
+            throw new Error("Workflow runtime store does not support starting runs.")
+          }
+          const result = await resolvedWorkflowStore.startRun({
+            projectId: command.projectId,
+            workflowDefinitionId: command.workflowDefinitionId,
+            chatId: command.chatId,
+            input: command.input,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
           return
         }
         case "update.check": {
@@ -1714,7 +1817,7 @@ export function createWsRouter({
         case "terminal.close": {
           terminals.close(command.terminalId)
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
-          pushTerminalSnapshot(command.terminalId)
+          void pushTerminalSnapshot(command.terminalId)
           return
         }
       }
@@ -1742,6 +1845,7 @@ export function createWsRouter({
     broadcastChatStateImmediately,
     scheduleBroadcast,
     scheduleChatStateBroadcast,
+    scheduleProjectWorkflowBroadcast,
     pruneStaleEmptyChats: () => maybePruneStaleEmptyChats(),
     async handleMessage(ws: ServerWebSocket<ClientState>, raw: string | Buffer | ArrayBuffer | Uint8Array) {
       let parsed: unknown

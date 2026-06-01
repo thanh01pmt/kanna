@@ -17,6 +17,7 @@ import { TerminalManager } from "./terminal-manager"
 import { UpdateManager } from "./update-manager"
 import type { UpdateInstallAttemptResult } from "./cli-runtime"
 import { createWsRouter, type ClientState } from "./ws-router"
+import { createDefaultWorkflowRuntimeStore } from "./workflow-runtime-store"
 import { deleteProjectUpload, inferAttachmentContentType, inferProjectFileContentType, persistProjectUpload } from "./uploads"
 import { getProjectUploadDir } from "./paths"
 
@@ -123,9 +124,11 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
       trackEvent: analytics.track.bind(analytics),
     })
     : null
+  const workflowStore = createDefaultWorkflowRuntimeStore()
   const agent = new AgentCoordinator({
     store,
     analytics,
+    workflowStore,
     onStateChange: (chatId?: string, options?: { immediate?: boolean }) => {
       if (chatId) {
         if (options?.immediate) {
@@ -136,6 +139,9 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
         return
       }
       router.scheduleBroadcast()
+    },
+    onWorkflowStateChange: (projectId: string) => {
+      router.scheduleProjectWorkflowBroadcast(projectId)
     },
   })
   router = createWsRouter({
@@ -155,6 +161,7 @@ export async function startKannaServer(options: StartKannaServerOptions = {}) {
     getDiscoveredProjects: () => discoveredProjects,
     machineDisplayName,
     updateManager,
+    workflowStore,
   })
   const staleEmptyChatPruneInterval = setInterval(() => {
     void router.pruneStaleEmptyChats()

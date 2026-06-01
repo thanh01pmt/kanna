@@ -100,8 +100,8 @@ process.on("SIGTERM", () => {
   shutdown(0)
 })
 
-console.log(`${LOG_PREFIX} dev client: http://localhost:${clientPort}`)
-console.log(`${LOG_PREFIX} dev server: http://localhost:${serverPort}`)
+console.log(`${LOG_PREFIX} dev app: http://localhost:${clientPort}`)
+console.log(`${LOG_PREFIX} dev backend: http://localhost:${serverPort}`)
 
 async function waitForLocalUrl(url: string, timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs

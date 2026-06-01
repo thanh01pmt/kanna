@@ -1076,3 +1076,92 @@ export interface PendingToolSnapshot {
   toolUseId: string
   toolKind: "ask_user_question" | "exit_plan_mode"
 }
+
+export type WorkflowNodeType = "workflow" | "task" | "step" | "gate" | "artifact_check"
+
+export type WorkflowNodeStatus =
+  | "horizon"
+  | "known"
+  | "running"
+  | "done"
+  | "failed"
+  | "waiting"
+  | "skipped"
+
+export type WorkflowNodeSource = "imported" | "discovered" | "dynamic" | "conditional" | "spawned"
+
+export type WorkflowArtifactImpactStatus =
+  | "needs_review"
+  | "reviewed_ok"
+  | "needs_repair"
+  | "repaired"
+  | "not_impacted"
+  | "maybe_impacted"
+
+export interface WorkflowArtifactRef {
+  id: string
+  path: string
+  kind: string
+  version?: string
+  checksum?: string
+  changed?: boolean
+  producedByNodeId?: string
+  dependsOn?: string[]
+}
+
+export interface WorkflowArtifactImpact {
+  id: string
+  sourceArtifactId: string
+  impactedArtifactId: string
+  impactedPath: string
+  impactedKind: string
+  status: WorkflowArtifactImpactStatus
+  relationship: "direct" | "transitive"
+  reason?: string
+}
+
+export interface WorkflowDefinitionSummary {
+  id: string
+  slug: string
+  name: string
+  description?: string
+  currentVersionId?: string
+  currentVersion?: string
+  workflowType: string
+}
+
+export interface WorkflowNode {
+  id: string
+  name: string
+  nodeType: WorkflowNodeType
+  status: WorkflowNodeStatus
+  source: WorkflowNodeSource
+  order: number
+  agent?: string
+  agentRunId?: string
+  spawnedByNodeId?: string
+  tokens?: number
+  durationMs?: number
+  condition?: string
+  sealed?: boolean
+  childrenSealed?: boolean
+  logSummary?: string
+  artifacts?: WorkflowArtifactRef[]
+  children?: WorkflowNode[]
+}
+
+export interface WorkflowRunProjection {
+  id: string
+  projectId?: string
+  chatId?: string
+  workflowType: string
+  title: string
+  status: WorkflowNodeStatus
+  startedAt?: string
+  elapsedMs?: number
+  tokenTotalKnown?: number
+  definitionVersion?: string
+  root: WorkflowNode
+  latestArtifacts?: WorkflowArtifactRef[]
+  impacts?: WorkflowArtifactImpact[]
+}

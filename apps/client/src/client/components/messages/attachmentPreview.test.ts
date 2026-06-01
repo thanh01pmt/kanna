@@ -53,6 +53,16 @@ describe("classifyAttachmentPreview", () => {
     expect(target.kind).toBe("text")
     expect(target.openInNewTab).toBe(false)
   })
+
+  test("keeps html files in modal preview flow", () => {
+    const target = classifyAttachmentPreview(makeAttachment({
+      displayName: "demo.html",
+      mimeType: "application/octet-stream",
+    }))
+
+    expect(target.kind).toBe("html")
+    expect(target.openInNewTab).toBe(false)
+  })
 })
 
 describe("parseDelimitedPreview", () => {

@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "strict": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@kanna/server/*": ["../server/src/*"],
+      "@kanna/shared/*": ["../shared/src/*"]
+    },
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"]
+}

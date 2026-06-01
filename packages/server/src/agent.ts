@@ -19,6 +19,7 @@ import { NoopAnalyticsReporter } from "./analytics"
 import { CodexAppServerManager } from "./codex-app-server"
 import { type GenerateChatTitleResult, generateTitleForChatDetailed } from "./generate-title"
 import type { HarnessEvent, HarnessToolRequest, HarnessTurn } from "./harness-types"
+import type { WorkflowRuntimeStore } from "./workflow-runtime-store"
 import {
   codexServiceTierFromModelOptions,
   getServerProviderCatalog,
@@ -101,6 +102,8 @@ interface ClaudeSessionState {
 interface AgentCoordinatorArgs {
   store: EventStore
   onStateChange: (chatId?: string, options?: { immediate?: boolean }) => void
+  onWorkflowStateChange?: (projectId: string) => void
+  workflowStore?: WorkflowRuntimeStore
   analytics?: AnalyticsReporter
   codexManager?: CodexAppServerManager
   generateTitle?: (messageContent: string, cwd: string) => Promise<GenerateChatTitleResult>
@@ -678,7 +681,10 @@ export class AgentCoordinator {
   private readonly codexManager: CodexAppServerManager
   private readonly generateTitle: (messageContent: string, cwd: string) => Promise<GenerateChatTitleResult>
   private readonly startClaudeSessionFn: NonNullable<AgentCoordinatorArgs["startClaudeSession"]>
+  private readonly onWorkflowStateChange?: (projectId: string) => void
+  private readonly workflowStore?: WorkflowRuntimeStore
   private reportBackgroundError: ((message: string) => void) | null = null
+  private workflowWarningShown = false
   readonly activeTurns = new Map<string, ActiveTurn>()
   readonly drainingStreams = new Map<string, { turn: HarnessTurn }>()
   readonly claudeSessions = new Map<string, ClaudeSessionState>()
@@ -690,6 +696,8 @@ export class AgentCoordinator {
     this.codexManager = args.codexManager ?? new CodexAppServerManager()
     this.generateTitle = args.generateTitle ?? generateTitleForChatDetailed
     this.startClaudeSessionFn = args.startClaudeSession ?? startClaudeSession
+    this.workflowStore = args.workflowStore
+    this.onWorkflowStateChange = args.onWorkflowStateChange
   }
 
   setBackgroundErrorReporter(report: ((message: string) => void) | null) {
@@ -716,6 +724,26 @@ export class AgentCoordinator {
 
   private emitStateChange(chatId?: string, options?: { immediate?: boolean }) {
     this.onStateChange(chatId, options)
+  }
+
+  private async mirrorWorkflowTranscriptEntry(chatId: string, provider: AgentProvider, entry: TranscriptEntry) {
+    if (!this.workflowStore?.recordTranscriptEntry) return
+    const chat = this.store.getChat(chatId)
+    if (!chat) return
+
+    try {
+      await this.workflowStore.recordTranscriptEntry({
+        projectId: chat.projectId,
+        chatId,
+        provider,
+        entry,
+      })
+      this.onWorkflowStateChange?.(chat.projectId)
+    } catch (error) {
+      if (this.workflowWarningShown) return
+      this.workflowWarningShown = true
+      console.warn("[workflow-runtime] Unable to mirror transcript entry:", error instanceof Error ? error.message : String(error))
+    }
   }
 
   getActiveTurnProfile(chatId: string): SendToStartingProfile | null {
@@ -885,6 +913,7 @@ export class AgentCoordinator {
         Date.now()
       )
       await this.store.appendMessage(args.chatId, userPromptEntry)
+      await this.mirrorWorkflowTranscriptEntry(args.chatId, args.provider, userPromptEntry)
       logSendToStartingProfile(args.profile, "start_turn.user_prompt_appended", {
         chatId: args.chatId,
         entryId: userPromptEntry._id,
@@ -1256,6 +1285,7 @@ export class AgentCoordinator {
 
         if (!event.entry) continue
         await this.store.appendMessage(session.chatId, event.entry)
+        await this.mirrorWorkflowTranscriptEntry(session.chatId, "claude", event.entry)
         const active = this.activeTurns.get(session.chatId)
         if (event.entry.kind === "system_init" && active) {
           active.status = "running"
@@ -1379,6 +1409,7 @@ export class AgentCoordinator {
 
         if (!event.entry) continue
         await this.store.appendMessage(active.chatId, event.entry)
+        await this.mirrorWorkflowTranscriptEntry(active.chatId, active.provider, event.entry)
 
         if (event.entry.kind === "system_init") {
           active.status = "running"
@@ -1522,8 +1553,10 @@ export class AgentCoordinator {
       }
     }
 
-    await this.store.appendMessage(chatId, timestamped({ kind: "interrupted", hidden: options?.hideInterrupted }))
-    await this.store.recordTurnCancelled(chatId)
+    const interruptedEntry = timestamped({ kind: "interrupted", hidden: options?.hideInterrupted })
+    await this.store.appendMessage(chatId, interruptedEntry)
+    await this.mirrorWorkflowTranscriptEntry(chatId, active.provider, interruptedEntry)
+      await this.store.recordTurnCancelled(chatId)
     active.cancelRecorded = true
     active.hasFinalResult = true
 
@@ -1562,14 +1595,13 @@ export class AgentCoordinator {
       throw new Error("Tool response does not match active request")
     }
 
-    await this.store.appendMessage(
-      command.chatId,
-      timestamped({
-        kind: "tool_result",
-        toolId: command.toolUseId,
-        content: command.result,
-      })
-    )
+    const toolResultEntry = timestamped({
+      kind: "tool_result",
+      toolId: command.toolUseId,
+      content: command.result,
+    })
+    await this.store.appendMessage(command.chatId, toolResultEntry)
+    await this.mirrorWorkflowTranscriptEntry(command.chatId, active.provider, toolResultEntry)
 
     active.pendingTool = null
     active.status = "running"

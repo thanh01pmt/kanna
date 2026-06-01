@@ -1,0 +1,23 @@
+{
+  "name": "@kanna/mcp",
+  "version": "0.41.5",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "kanna-mcp": "./bin/kanna-mcp"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "check": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@kanna/server": "workspace:*",
+    "@kanna/shared": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "typescript": "5.8.3"
+  }
+}

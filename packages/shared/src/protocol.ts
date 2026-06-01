@@ -16,6 +16,7 @@ import type {
   StandaloneTranscriptExportResult,
   UpdateSnapshot,
   EditorPreset,
+  WorkflowRunProjection,
 } from "./types"
 
 export type { EditorPreset }
@@ -54,6 +55,7 @@ export type SubscriptionTopic =
   | { type: "app-settings" }
   | { type: "chat"; chatId: string; recentLimit?: number }
   | { type: "project-git"; projectId: string }
+  | { type: "project-workflow"; projectId: string }
   | { type: "terminal"; terminalId: string }
 
 export interface TerminalSnapshot {
@@ -92,6 +94,8 @@ export type ClientCommand =
   | { type: "browser.killLocalHttpServer"; port: number }
   | { type: "project.readQuickActions"; projectId: string }
   | { type: "project.writeQuickActions"; projectId: string; quickActions: ProjectQuickAction[] }
+  | { type: "workflow.listDefinitions"; projectId: string }
+  | { type: "workflow.startRun"; projectId: string; workflowDefinitionId: string; chatId?: string; input?: Record<string, unknown> }
   | { type: "update.check"; force?: boolean }
   | { type: "update.install" }
   | { type: "settings.readKeybindings" }
@@ -266,6 +270,7 @@ export type ServerSnapshot =
   | { type: "llm-provider"; data: LlmProviderSnapshot }
   | { type: "chat"; data: ChatSnapshot | null }
   | { type: "project-git"; data: ChatDiffSnapshot | null }
+  | { type: "project-workflow"; data: WorkflowRunProjection | null }
   | { type: "terminal"; data: TerminalSnapshot | null }
 
 export type ServerEnvelope =

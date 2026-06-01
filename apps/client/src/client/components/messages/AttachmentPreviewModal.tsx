@@ -33,13 +33,13 @@ type PreviewState =
   | { status: "error"; message: string }
   | {
     status: "ready"
-    kind: Extract<AttachmentPreviewKind, "markdown" | "text" | "json" | "table">
+    kind: Extract<AttachmentPreviewKind, "markdown" | "text" | "json" | "table" | "html">
     content?: string
     truncated?: boolean
     table?: TablePreviewData
   }
 
-type LoadablePreviewKind = Extract<AttachmentPreviewKind, "markdown" | "text" | "json" | "table">
+type LoadablePreviewKind = Extract<AttachmentPreviewKind, "markdown" | "text" | "json" | "table" | "html">
 
 interface Props {
   attachment: ChatAttachment | null
@@ -215,6 +215,20 @@ function renderAttachmentPreviewBody(
             {previewState.content}
           </Markdown>
         </div>
+      </div>
+    )
+  }
+
+  if (previewState.kind === "html" && previewState.content !== undefined) {
+    return (
+      <div className="space-y-3">
+        {previewState.truncated ? <PreviewNotice message="Preview truncated to 1024 KB." /> : null}
+        <iframe
+          title={attachment.displayName}
+          srcDoc={previewState.content}
+          sandbox="allow-same-origin"
+          className="h-[70vh] w-full rounded-xl border border-border bg-background"
+        />
       </div>
     )
   }

@@ -2,7 +2,7 @@ import { create } from "zustand"
 import { persist } from "zustand/middleware"
 
 export interface ProjectRightSidebarVisibilityState {
-  rightPanel: "hidden" | "git" | "browser" | "slides"
+  rightPanel: "hidden" | "git" | "browser" | "slides" | "workflow"
 }
 
 export interface ProjectRightSidebarUiState {

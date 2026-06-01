@@ -1,5 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type DragEvent, type ReactNode, type RefObject } from "react"
 import { type LegendListRef } from "@legendapp/list/react"
+import { WorkflowTrackerPanel } from "@kanna/workflow-tracker"
+import type { WorkflowArtifactImpact, WorkflowArtifactRef, WorkflowDefinitionSummary, WorkflowRunProjection } from "@kanna/shared/types"
 import type { GroupImperativeHandle } from "react-resizable-panels"
 import { useOutletContext } from "react-router-dom"
 import type { ChatInputHandle } from "../../components/chat-ui/ChatInput"
@@ -480,6 +482,9 @@ export function ChatPage() {
   const { inputRef, syncInputHeight, transcriptPaddingBottom } = useTranscriptPaddingBottom()
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const [pendingTerminalCommands, setPendingTerminalCommands] = useState<Record<string, string>>({})
+  const [workflowProjection, setWorkflowProjection] = useState<WorkflowRunProjection | null>(null)
+  const [workflowDefinitions, setWorkflowDefinitions] = useState<WorkflowDefinitionSummary[]>([])
+  const [isStartingWorkflow, setIsStartingWorkflow] = useState(false)
   const showEmptyState = state.messages.length === 0 && state.runtime?.title === "New Chat"
   const projectId = state.activeProjectId
   const projectTerminalLayout = useTerminalLayoutStore((store) => (projectId ? store.projects[projectId] : undefined))
@@ -502,6 +507,103 @@ export function ChatPage() {
   const editorCommandTemplate = useTerminalPreferencesStore((store) => store.editorCommandTemplate)
   const resolvedKeybindings = useMemo(() => getResolvedKeybindings(state.keybindings), [state.keybindings])
   const baseContextWindowSnapshotRef = useRef<ReturnType<typeof deriveLatestContextWindowSnapshot>>(null)
+  useEffect(() => {
+    if (!projectId) {
+      setWorkflowProjection(null)
+      setWorkflowDefinitions([])
+      return
+    }
+
+    let disposed = false
+    void state.socket.command<WorkflowDefinitionSummary[]>({ type: "workflow.listDefinitions", projectId })
+      .then((definitions) => {
+        if (!disposed) setWorkflowDefinitions(definitions)
+      })
+      .catch(() => {
+        if (!disposed) setWorkflowDefinitions([])
+      })
+
+    const unsubscribe = state.socket.subscribe<WorkflowRunProjection | null>(
+      { type: "project-workflow", projectId },
+      setWorkflowProjection
+    )
+
+    return () => {
+      disposed = true
+      unsubscribe()
+    }
+  }, [projectId, state.socket])
+
+  const handleStartWorkflow = useCallback(async (definition: WorkflowDefinitionSummary) => {
+    if (!projectId) return
+    setIsStartingWorkflow(true)
+    try {
+      const projection = await state.socket.command<WorkflowRunProjection>({
+        type: "workflow.startRun",
+        projectId,
+        workflowDefinitionId: definition.id,
+        chatId: state.activeChatId ?? undefined,
+        input: {
+          startedFrom: "workflow-sidebar",
+        },
+      })
+      setWorkflowProjection(projection)
+      toggleRightPanel(projectId, "workflow")
+      await state.socket.command({
+        type: "chat.send",
+        chatId: state.activeChatId ?? undefined,
+        projectId: state.activeChatId ? undefined : projectId,
+        content: [
+          `Run workflow: ${definition.name} (${definition.workflowType}).`,
+          "",
+          "Use the imported workflow definition as the source of truth.",
+          "Keep chat updates focused on what the agent is doing now.",
+          "Emit progress naturally through file/tool activity so the workflow sidebar can track nodes, artifacts, and downstream impact.",
+        ].join("\n"),
+        provider: state.runtime?.provider ?? undefined,
+        planMode: state.runtime?.planMode ?? undefined,
+      })
+    } finally {
+      setIsStartingWorkflow(false)
+    }
+  }, [projectId, state.activeChatId, state.runtime?.planMode, state.runtime?.provider, state.socket, toggleRightPanel])
+
+  const sendWorkflowAgentRequest = useCallback(async (content: string) => {
+    if (!projectId) return
+    await state.socket.command({
+      type: "chat.send",
+      chatId: state.activeChatId ?? undefined,
+      projectId: state.activeChatId ? undefined : projectId,
+      content,
+      provider: state.runtime?.provider ?? undefined,
+      planMode: state.runtime?.planMode ?? undefined,
+    })
+  }, [projectId, state.activeChatId, state.runtime?.planMode, state.runtime?.provider, state.socket])
+
+  const handleReviewDownstream = useCallback((artifact: WorkflowArtifactRef) => {
+    void sendWorkflowAgentRequest([
+      `Review downstream artifacts impacted by ${artifact.path}.`,
+      "",
+      "Use the workflow artifact dependency semantics:",
+      "- Identify direct and transitive downstream artifacts.",
+      "- Mark each as reviewed_ok, needs_repair, or maybe_impacted.",
+      "- Repair only when necessary and explain what changed.",
+    ].join("\n"))
+  }, [sendWorkflowAgentRequest])
+
+  const handleRepairImpacted = useCallback((impact: WorkflowArtifactImpact) => {
+    void sendWorkflowAgentRequest([
+      `Repair impacted artifact candidate: ${impact.impactedPath}.`,
+      "",
+      `Impact status: ${impact.status}`,
+      `Relationship: ${impact.relationship}`,
+      `Kind: ${impact.impactedKind}`,
+      impact.reason ? `Reason: ${impact.reason}` : "",
+      "",
+      "Please inspect the source artifact and repair the impacted artifact if needed. Keep the workflow sidebar updated through normal file/tool activity.",
+    ].filter(Boolean).join("\n"))
+  }, [sendWorkflowAgentRequest])
+
   const contextWindowSnapshot = useMemo(() => {
     const derivedSnapshot = deriveLatestContextWindowSnapshot(state.chatSnapshot?.messages ?? [])
     const previousSnapshot = baseContextWindowSnapshotRef.current
@@ -689,6 +791,11 @@ export function ChatPage() {
   const handleToggleSlidesPanel = useCallback(() => {
     if (!projectId) return
     toggleRightPanel(projectId, "slides")
+  }, [projectId, toggleRightPanel])
+
+  const handleToggleWorkflowPanel = useCallback(() => {
+    if (!projectId) return
+    toggleRightPanel(projectId, "workflow")
   }, [projectId, toggleRightPanel])
 
   const handleRunQuickAction = useCallback((command: string) => {
@@ -934,6 +1041,7 @@ export function ChatPage() {
           onToggleGitPanel={projectId ? handleToggleGitPanel : undefined}
           onToggleBrowserPanel={projectId ? handleToggleBrowserPanel : undefined}
           onToggleSlidesPanel={projectId ? handleToggleSlidesPanel : undefined}
+          onToggleWorkflowPanel={projectId ? handleToggleWorkflowPanel : undefined}
           onOpenExternal={handleOpenExternal}
           onExportTranscript={state.activeChatId ? () => void state.handleShareChat(state.activeChatId) : undefined}
           canExportTranscript={Boolean(state.activeChatId) && !state.isExportingStandalone}
@@ -1102,9 +1210,21 @@ export function ChatPage() {
     ? <BrowserPanel projectId={projectId} socket={state.socket} onClose={handleCloseRightSidebar} onRunQuickAction={handleRunQuickAction} />
     : activeRightPanel === "slides" && projectId
       ? <MarkdownSlideViewer projectId={projectId} socket={state.socket} onClose={handleCloseRightSidebar} />
-      : gitPanelContentProps
-        ? <ChatSidebarContent {...gitPanelContentProps} />
-        : null
+      : activeRightPanel === "workflow" && projectId
+        ? (
+          <WorkflowTrackerPanel
+            run={workflowProjection}
+            workflowDefinitions={workflowDefinitions}
+            isStartingWorkflow={isStartingWorkflow}
+            onStartWorkflow={handleStartWorkflow}
+            onReviewDownstream={handleReviewDownstream}
+            onRepairImpacted={handleRepairImpacted}
+            onClose={handleCloseRightSidebar}
+          />
+        )
+        : gitPanelContentProps
+          ? <ChatSidebarContent {...gitPanelContentProps} />
+          : null
 
   return (
     <div ref={layoutRootRef} className="flex-1 flex flex-col min-w-0 relative">
