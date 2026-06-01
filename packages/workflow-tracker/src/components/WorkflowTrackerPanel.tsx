@@ -100,11 +100,11 @@ function ArtifactChip({
   
   return (
     <span className={cn(
-      "group relative inline-flex min-w-0 items-center gap-1 rounded-lg border border-border bg-background px-2 py-1 text-[11px] text-muted-foreground transition-all",
+      "group relative flex w-full min-w-0 items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1.5 text-[11px] text-muted-foreground transition-all hover:bg-muted/30",
       artifact.changed && "border-[hsl(var(--chart-1)/0.45)] bg-[hsl(var(--chart-1)/0.1)] text-foreground"
     )}>
-      <FileText className="h-3.5 w-3.5 shrink-0" />
-      <span className="truncate font-mono">{artifact.path}</span>
+      <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground/75" />
+      <span className="truncate font-mono flex-1 text-left">{artifact.path}</span>
       <div className={cn(
         "flex shrink-0 items-center gap-1 overflow-hidden transition-all duration-200",
         isExpanded ? "ml-1 max-w-[400px] opacity-100" : "max-w-0 opacity-0 group-hover:ml-1 group-hover:max-w-[400px] group-hover:opacity-100"
@@ -173,7 +173,7 @@ function WorkflowNodeRow({
           <NodeMeta node={node} densityMode={densityMode} />
           {node.condition && !isCompact ? <div className="mt-1 line-clamp-2 text-[11px] text-muted-foreground font-mono">if: {node.condition}</div> : null}
           {node.logSummary && !isCompact ? <div className="mt-1 line-clamp-2 text-xs text-muted-foreground font-mono">{node.logSummary}</div> : null}
-          {node.artifacts?.length && !isCompact ? <div className="mt-2 flex flex-wrap gap-1.5">{node.artifacts.map((artifact) => <ArtifactChip key={artifact.id} artifact={artifact} densityMode={densityMode} actions={actions} />)}</div> : null}
+          {node.artifacts?.length && !isCompact ? <div className="mt-2 flex flex-col gap-1.5">{node.artifacts.map((artifact) => <ArtifactChip key={artifact.id} artifact={artifact} densityMode={densityMode} actions={actions} />)}</div> : null}
         </span>
         {canRerun ? (
           <span
@@ -468,7 +468,7 @@ export function WorkflowTrackerPanel({
           <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
             <History className="h-3.5 w-3.5" /> Latest Artifacts
           </div>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-col gap-1.5">
             {run.latestArtifacts?.map((artifact) => <ArtifactChip key={artifact.id} artifact={artifact} densityMode={densityMode} actions={{
               ...actions,
               onRepairDownstream: (a) => setRepairTarget(a)

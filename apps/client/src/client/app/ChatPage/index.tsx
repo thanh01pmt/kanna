@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type DragEvent, type ReactNode, type RefObject } from "react"
 import { type LegendListRef } from "@legendapp/list/react"
 import { WorkflowTrackerPanel } from "@kanna/workflow-tracker"
-import type { WorkflowArtifactImpact, WorkflowArtifactRef, WorkflowDefinitionSummary, WorkflowRunProjection } from "@kanna/shared/types"
+import type { WorkflowArtifactImpact, WorkflowArtifactRef, WorkflowDefinitionSummary, WorkflowRunProjection, WorkflowNode } from "@kanna/shared/types"
 import type { GroupImperativeHandle } from "react-resizable-panels"
 import { useOutletContext } from "react-router-dom"
 import type { ChatInputHandle } from "../../components/chat-ui/ChatInput"
@@ -611,6 +611,59 @@ export function ChatPage() {
       "- Repair only when necessary and explain what changed.",
     ].join("\n"))
   }, [sendWorkflowAgentRequest])
+
+  const handleRerunNode = useCallback((node: WorkflowNode) => {
+    void sendWorkflowAgentRequest(`Rerun the workflow node: ${node.name}.`)
+  }, [sendWorkflowAgentRequest])
+
+  const handleRerunArtifact = useCallback((artifact: WorkflowArtifactRef) => {
+    void sendWorkflowAgentRequest(`Rerun the steps to produce the artifact: ${artifact.path}.`)
+  }, [sendWorkflowAgentRequest])
+
+  const handleRegenerateArtifact = useCallback((artifact: WorkflowArtifactRef) => {
+    void sendWorkflowAgentRequest(`Regenerate the artifact: ${artifact.path}.`)
+  }, [sendWorkflowAgentRequest])
+
+  const handleInvalidateArtifact = useCallback((artifact: WorkflowArtifactRef) => {
+    void sendWorkflowAgentRequest(`Invalidate the artifact: ${artifact.path}. Mark it as dirty or out-of-date, and check if any downstream artifacts need to be reviewed.`)
+  }, [sendWorkflowAgentRequest])
+
+  const handleAcceptArtifact = useCallback((artifact: WorkflowArtifactRef) => {
+    void sendWorkflowAgentRequest(`Accept the artifact: ${artifact.path} as the current source of truth. Mark it as reviewed and ok.`)
+  }, [sendWorkflowAgentRequest])
+
+  const handleRepairDownstream = useCallback((artifact: WorkflowArtifactRef, impacted: WorkflowArtifactRef[]) => {
+    const list = impacted.map((art) => `- ${art.path}`).join("\n")
+    void sendWorkflowAgentRequest([
+      `Repair the downstream artifacts impacted by ${artifact.path}.`,
+      "",
+      "The following downstream artifacts must be repaired:",
+      list || "- (No downstream artifacts calculated)",
+      "",
+      "Re-evaluate and rebuild these artifacts to ensure correctness and alignment.",
+    ].join("\n"))
+  }, [sendWorkflowAgentRequest])
+
+  const handlePublishWorkflow = useCallback(async (manifest: import("@kanna/shared/workflow-schema").WorkflowManifest) => {
+    if (!projectId) return
+    try {
+      await state.socket.command({
+        type: "project.writeFile",
+        projectId,
+        relativePath: "workflow-manifest.json",
+        content: JSON.stringify(manifest, null, 2),
+      })
+      console.log("Published workflow manifest successfully.")
+      setProposedManifest(null)
+    } catch (err) {
+      console.error("Failed to publish workflow manifest:", err)
+    }
+  }, [projectId, state.socket])
+
+  const handleRejectWorkflow = useCallback(() => {
+    console.log("Reject proposed manifest")
+    setProposedManifest(null)
+  }, [])
 
   const contextWindowSnapshot = useMemo(() => {
     const derivedSnapshot = deriveLatestContextWindowSnapshot(state.chatSnapshot?.messages ?? [])
@@ -1226,30 +1279,15 @@ export function ChatPage() {
             isStartingWorkflow={isStartingWorkflow}
             onStartWorkflow={handleStartWorkflow}
             proposedManifest={proposedManifest || undefined}
-            onPublishWorkflow={(manifest) => {
-              console.log("Mock action: publishing manifest", manifest)
-              setProposedManifest(null)
-            }}
-            onRejectWorkflow={() => {
-              console.log("Mock action: reject proposed manifest")
-              setProposedManifest(null)
-            }}
+            onPublishWorkflow={handlePublishWorkflow}
+            onRejectWorkflow={handleRejectWorkflow}
             onReviewDownstream={handleReviewDownstream}
-            onRepairDownstream={(artifact, impacted) => {
-              console.log("Mock action: repair downstream for", artifact.path, "impacting", impacted.length, "artifacts")
-            }}
-            onRerunArtifact={(artifact) => {
-              console.log("Mock action: rerun artifact", artifact.path)
-            }}
-            onRegenerateArtifact={(artifact) => {
-              console.log("Mock action: regenerate artifact", artifact.path)
-            }}
-            onInvalidateArtifact={(artifact) => {
-              console.log("Mock action: invalidate artifact", artifact.path)
-            }}
-            onAcceptArtifact={(artifact) => {
-              console.log("Mock action: accept artifact as source of truth", artifact.path)
-            }}
+            onRepairDownstream={handleRepairDownstream}
+            onRerunArtifact={handleRerunArtifact}
+            onRegenerateArtifact={handleRegenerateArtifact}
+            onInvalidateArtifact={handleInvalidateArtifact}
+            onAcceptArtifact={handleAcceptArtifact}
+            onRerunNode={handleRerunNode}
             densityMode={projectUiState?.workflowDensityMode ?? "normal"}
             onDensityModeChange={(mode) => projectId && setWorkflowDensityMode(projectId, mode)}
             onClose={handleCloseRightSidebar}

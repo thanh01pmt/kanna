@@ -15,7 +15,11 @@ export function calculateDownstreamImpacts(
   while (queue.length > 0) {
     const currentId = queue.shift()!
     const directImpacts = impacts.filter(
-      (impact) => impact.sourceArtifactId === currentId && impact.status === "needs_repair"
+      (impact) =>
+        impact.sourceArtifactId === currentId &&
+        impact.status !== "reviewed_ok" &&
+        impact.status !== "repaired" &&
+        impact.status !== "not_impacted"
     )
 
     for (const impact of directImpacts) {
