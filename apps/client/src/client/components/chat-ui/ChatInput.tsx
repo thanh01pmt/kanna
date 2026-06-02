@@ -6,6 +6,8 @@ import {
   type ClaudeContextWindow,
   type ClaudeReasoningEffort,
   type CodexReasoningEffort,
+  type AntigravityReasoningEffort,
+  type PiReasoningEffort,
   type ModelOptions,
   type ProviderCatalogEntry,
   normalizeClaudeContextWindow,
@@ -155,19 +157,39 @@ function getEffectiveComposerState(
     return composerState
   }
 
-  return activeProvider === "claude"
-    ? {
+  if (activeProvider === "claude") {
+    return {
       provider: "claude",
       model: providerDefaults.claude.model,
       modelOptions: { ...providerDefaults.claude.modelOptions },
       planMode: composerState.planMode,
     }
-    : {
+  }
+
+  if (activeProvider === "codex") {
+    return {
       provider: "codex",
       model: providerDefaults.codex.model,
       modelOptions: { ...providerDefaults.codex.modelOptions },
       planMode: composerState.planMode,
     }
+  }
+
+  if (activeProvider === "antigravity") {
+    return {
+      provider: "antigravity",
+      model: providerDefaults.antigravity.model,
+      modelOptions: { ...providerDefaults.antigravity.modelOptions },
+      planMode: composerState.planMode,
+    }
+  }
+
+  return {
+    provider: "pi",
+    model: providerDefaults.pi.model,
+    modelOptions: { ...providerDefaults.pi.modelOptions },
+    planMode: composerState.planMode,
+  }
 }
 
 const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
@@ -214,6 +236,7 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const attachmentsRef = useRef<ComposerAttachment[]>([])
   const uploadGenerationRef = useRef(0)
   const removedAttachmentIdsRef = useRef<Set<string>>(new Set())
+  const submitInFlightRef = useRef(false)
   const previousProjectIdRef = useRef<string | null>(projectId ?? null)
   const latestChatIdRef = useRef<string | null>(chatId ?? null)
 
@@ -376,7 +399,10 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   function setReasoningEffort(reasoningEffort: string) {
     updateComposerState((state) => ({
       ...state,
-      modelOptions: { ...state.modelOptions, reasoningEffort: reasoningEffort as ClaudeReasoningEffort & CodexReasoningEffort },
+      modelOptions: {
+        ...state.modelOptions,
+        reasoningEffort: reasoningEffort as ClaudeReasoningEffort & CodexReasoningEffort & AntigravityReasoningEffort & PiReasoningEffort,
+      },
     } as ComposerState))
   }
 
@@ -511,19 +537,22 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }), [enqueueFiles])
 
   async function handleSubmit() {
+    if (submitInFlightRef.current) return
     if (!canSubmit || hasPendingUploads) return
+    submitInFlightRef.current = true
 
     const nextValue = value
     const previousAttachments = attachmentsRef.current
     const previousSelectedAttachmentId = selectedAttachmentId
     const previousUploadError = uploadError
     const attachmentsForSubmit = uploadedAttachments.map(({ previewUrl: _previewUrl, status: _status, ...attachment }) => attachment)
-    let modelOptions: ModelOptions
-    if (providerPrefs.provider === "claude") {
-      modelOptions = { claude: { ...providerPrefs.modelOptions } }
-    } else {
-      modelOptions = { codex: { ...providerPrefs.modelOptions } }
-    }
+    const modelOptions: ModelOptions = providerPrefs.provider === "claude"
+      ? { claude: { ...providerPrefs.modelOptions } }
+      : providerPrefs.provider === "codex"
+        ? { codex: { ...providerPrefs.modelOptions } }
+        : providerPrefs.provider === "antigravity"
+          ? { antigravity: { ...providerPrefs.modelOptions } }
+          : { pi: { ...providerPrefs.modelOptions } }
     const submitOptions = {
       provider: selectedProvider,
       model: providerPrefs.model,
@@ -549,6 +578,8 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
       setAttachments(previousAttachments)
       setSelectedAttachmentId(previousSelectedAttachmentId)
       setUploadError(previousUploadError)
+    } finally {
+      submitInFlightRef.current = false
     }
   }
 
@@ -787,6 +818,12 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   setReasoningEffort(change.effort)
                   break
                 case "codexReasoningEffort":
+                  setReasoningEffort(change.effort)
+                  break
+                case "antigravityReasoningEffort":
+                  setReasoningEffort(change.effort)
+                  break
+                case "piReasoningEffort":
                   setReasoningEffort(change.effort)
                   break
                 case "contextWindow":

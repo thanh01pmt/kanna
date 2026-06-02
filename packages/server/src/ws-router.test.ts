@@ -102,6 +102,20 @@ const DEFAULT_APP_SETTINGS_SNAPSHOT: AppSettingsSnapshot = {
       },
       planMode: false,
     },
+    antigravity: {
+      model: "gemini-3.5-flash",
+      modelOptions: {
+        reasoningEffort: "high",
+      },
+      planMode: false,
+    },
+    pi: {
+      model: "gpt-5.5",
+      modelOptions: {
+        reasoningEffort: "high",
+      },
+      planMode: false,
+    },
   },
   warning: null,
   filePathDisplay: "~/.kanna/data/settings.json",

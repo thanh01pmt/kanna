@@ -7,7 +7,7 @@ export interface HarnessEvent {
 }
 
 export interface HarnessToolRequest {
-  tool: NormalizedToolCall & { toolKind: "ask_user_question" | "exit_plan_mode" }
+  tool: NormalizedToolCall & { toolKind: "ask_user_question" | "exit_plan_mode" | "cli_permission_request" }
 }
 
 export interface HarnessTurn {

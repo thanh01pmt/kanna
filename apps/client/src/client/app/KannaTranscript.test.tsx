@@ -16,10 +16,11 @@ function renderTranscript(messages: HydratedTranscriptMessage[]) {
     <KannaTranscript
       messages={messages}
       isLoading={false}
-      latestToolIds={{ AskUserQuestion: null, ExitPlanMode: null, TodoWrite: null }}
+      latestToolIds={{ AskUserQuestion: null, ExitPlanMode: null, CliPermissionRequest: null, TodoWrite: null }}
       onOpenLocalLink={() => undefined}
       onAskUserQuestionSubmit={() => undefined}
       onExitPlanModeConfirm={() => undefined}
+      onCliPermissionRespond={() => undefined}
     />
   )
 }

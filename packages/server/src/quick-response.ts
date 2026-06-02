@@ -150,12 +150,17 @@ export async function runOpenAIStructured(
     baseURL: config.resolvedBaseUrl,
   })
 
-  const response = await client.responses.create({
+  const response = await client.chat.completions.create({
     model: config.model,
-    input: args.prompt,
-    text: {
-      format: {
-        type: "json_schema",
+    messages: [
+      {
+        role: "user",
+        content: args.prompt,
+      },
+    ],
+    response_format: {
+      type: "json_schema",
+      json_schema: {
         name: "quick_response",
         schema: args.schema,
         strict: true,
@@ -163,7 +168,7 @@ export async function runOpenAIStructured(
     },
   })
 
-  return parseJsonText(response.output_text)
+  return parseJsonText(response.choices[0]?.message?.content ?? "")
 }
 
 export async function runCodexStructured(

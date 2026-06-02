@@ -1,7 +1,7 @@
 export const STORE_VERSION = 2 as const
 export const PROTOCOL_VERSION = 1 as const
 
-export type AgentProvider = "claude" | "codex"
+export type AgentProvider = "claude" | "codex" | "antigravity" | "pi"
 export type LlmProviderKind = "openai" | "openrouter" | "custom"
 export type AppThemePreference = "light" | "dark" | "system"
 export type ChatSoundPreference = "never" | "unfocused" | "always"
@@ -166,8 +166,26 @@ export const CODEX_REASONING_OPTIONS = [
   { id: "xhigh", label: "XHigh" },
 ] as const satisfies readonly ProviderEffortOption[]
 
+export const ANTIGRAVITY_REASONING_OPTIONS = [
+  { id: "minimal", label: "Minimal" },
+  { id: "low", label: "Low" },
+  { id: "medium", label: "Medium" },
+  { id: "high", label: "High" },
+] as const satisfies readonly ProviderEffortOption[]
+
+export const PI_REASONING_OPTIONS = [
+  { id: "off", label: "Off" },
+  { id: "minimal", label: "Minimal" },
+  { id: "low", label: "Low" },
+  { id: "medium", label: "Medium" },
+  { id: "high", label: "High" },
+  { id: "xhigh", label: "XHigh" },
+] as const satisfies readonly ProviderEffortOption[]
+
 export type ClaudeReasoningEffort = (typeof CLAUDE_REASONING_OPTIONS)[number]["id"]
 export type CodexReasoningEffort = (typeof CODEX_REASONING_OPTIONS)[number]["id"]
+export type AntigravityReasoningEffort = (typeof ANTIGRAVITY_REASONING_OPTIONS)[number]["id"]
+export type PiReasoningEffort = (typeof PI_REASONING_OPTIONS)[number]["id"]
 export type ClaudeContextWindow = "200k" | "1m"
 export type ServiceTier = "fast"
 
@@ -181,9 +199,19 @@ export interface CodexModelOptions {
   fastMode: boolean
 }
 
+export interface AntigravityModelOptions {
+  reasoningEffort: AntigravityReasoningEffort
+}
+
+export interface PiModelOptions {
+  reasoningEffort: PiReasoningEffort
+}
+
 export interface ProviderModelOptionsByProvider {
   claude: ClaudeModelOptions
   codex: CodexModelOptions
+  antigravity: AntigravityModelOptions
+  pi: PiModelOptions
 }
 
 export interface ProviderPreference<TModelOptions> {
@@ -195,6 +223,8 @@ export interface ProviderPreference<TModelOptions> {
 export type ChatProviderPreferences = {
   claude: ProviderPreference<ClaudeModelOptions>
   codex: ProviderPreference<CodexModelOptions>
+  antigravity: ProviderPreference<AntigravityModelOptions>
+  pi: ProviderPreference<PiModelOptions>
 }
 
 export type ModelOptions = Partial<{
@@ -211,12 +241,28 @@ export const DEFAULT_CODEX_MODEL_OPTIONS = {
   fastMode: false,
 } as const satisfies CodexModelOptions
 
+export const DEFAULT_ANTIGRAVITY_MODEL_OPTIONS = {
+  reasoningEffort: "high",
+} as const satisfies AntigravityModelOptions
+
+export const DEFAULT_PI_MODEL_OPTIONS = {
+  reasoningEffort: "high",
+} as const satisfies PiModelOptions
+
 export function isClaudeReasoningEffort(value: unknown): value is ClaudeReasoningEffort {
   return CLAUDE_REASONING_OPTIONS.some((option) => option.id === value)
 }
 
 export function isCodexReasoningEffort(value: unknown): value is CodexReasoningEffort {
   return CODEX_REASONING_OPTIONS.some((option) => option.id === value)
+}
+
+export function isAntigravityReasoningEffort(value: unknown): value is AntigravityReasoningEffort {
+  return ANTIGRAVITY_REASONING_OPTIONS.some((option) => option.id === value)
+}
+
+export function isPiReasoningEffort(value: unknown): value is PiReasoningEffort {
+  return PI_REASONING_OPTIONS.some((option) => option.id === value)
 }
 
 export const CLAUDE_CONTEXT_WINDOW_OPTIONS = [
@@ -282,6 +328,38 @@ export const PROVIDERS: ProviderCatalogEntry[] = [
       { id: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark", supportsEffort: false },
     ],
     efforts: [],
+  },
+  {
+    id: "antigravity",
+    label: "Antigravity",
+    defaultModel: "gemini-3.5-flash",
+    defaultEffort: "high",
+    supportsPlanMode: false,
+    models: [
+      { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash", supportsEffort: true },
+      { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro Preview", supportsEffort: true },
+      { id: "gemini-3-pro-preview", label: "Gemini 3 Pro Preview", supportsEffort: true },
+      { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", supportsEffort: true },
+      { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", supportsEffort: true },
+      { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash", supportsEffort: false },
+    ],
+    efforts: [...ANTIGRAVITY_REASONING_OPTIONS],
+  },
+  {
+    id: "pi",
+    label: "Pi Agent",
+    defaultModel: "gpt-5.5",
+    defaultEffort: "high",
+    supportsPlanMode: false,
+    models: [
+      { id: "gpt-5.5", label: "GPT-5.5", supportsEffort: true },
+      { id: "gpt-5.4", label: "GPT-5.4", supportsEffort: true },
+      { id: "gpt-5.4-mini", label: "GPT-5.4 Mini", supportsEffort: true },
+      { id: "gpt-5.3-codex", label: "GPT-5.3 Codex", supportsEffort: true, aliases: ["gpt-5-codex"] },
+      { id: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark", supportsEffort: true },
+      { id: "gpt-5.2", label: "GPT-5.2", supportsEffort: true },
+    ],
+    efforts: [...PI_REASONING_OPTIONS],
   },
 ]
 
@@ -453,6 +531,8 @@ export interface AppSettingsPatch {
   providerDefaults?: {
     claude?: Partial<ProviderPreference<ClaudeModelOptions>>
     codex?: Partial<ProviderPreference<CodexModelOptions>>
+    antigravity?: Partial<ProviderPreference<AntigravityModelOptions>>
+    pi?: Partial<ProviderPreference<PiModelOptions>>
   }
 }
 
@@ -636,9 +716,18 @@ export interface McpGenericToolCall
 export interface UnknownToolCall
   extends ToolCallBase<"unknown_tool", { payload: Record<string, unknown> }> { }
 
+export interface CliPermissionRequestToolCall
+  extends ToolCallBase<"cli_permission_request", {
+    provider: Extract<AgentProvider, "antigravity" | "pi">
+    command: string
+    prompt: string
+    options: Array<{ value: string; label: string }>
+  }> { }
+
 export type NormalizedToolCall =
   | AskUserQuestionToolCall
   | ExitPlanModeToolCall
+  | CliPermissionRequestToolCall
   | TodoWriteToolCall
   | SkillToolCall
   | GlobToolCall
@@ -942,11 +1031,20 @@ export interface ExitPlanModeToolResult {
   discarded?: boolean
 }
 
+export interface CliPermissionRequestToolResult {
+  choice: string
+  approved: boolean
+  discarded?: boolean
+}
+
 export type HydratedAskUserQuestionToolCall =
   HydratedToolCallBase<"ask_user_question", AskUserQuestionToolCall["input"], AskUserQuestionToolResult>
 
 export type HydratedExitPlanModeToolCall =
   HydratedToolCallBase<"exit_plan_mode", ExitPlanModeToolCall["input"], ExitPlanModeToolResult>
+
+export type HydratedCliPermissionRequestToolCall =
+  HydratedToolCallBase<"cli_permission_request", CliPermissionRequestToolCall["input"], CliPermissionRequestToolResult>
 
 export type HydratedTodoWriteToolCall =
   HydratedToolCallBase<"todo_write", TodoWriteToolCall["input"], unknown>
@@ -1006,6 +1104,7 @@ export type HydratedUnknownToolCall =
 export type HydratedToolCall =
   | HydratedAskUserQuestionToolCall
   | HydratedExitPlanModeToolCall
+  | HydratedCliPermissionRequestToolCall
   | HydratedTodoWriteToolCall
   | HydratedSkillToolCall
   | HydratedGlobToolCall
@@ -1074,7 +1173,7 @@ export interface KannaSnapshot {
 
 export interface PendingToolSnapshot {
   toolUseId: string
-  toolKind: "ask_user_question" | "exit_plan_mode"
+  toolKind: "ask_user_question" | "exit_plan_mode" | "cli_permission_request"
 }
 
 export type WorkflowNodeType = "workflow" | "task" | "step" | "gate" | "artifact_check"
@@ -1317,5 +1416,3 @@ export interface WorkflowImportLineage {
   updateAvailable?: boolean
   latestSourceVersion?: string
 }
-
-

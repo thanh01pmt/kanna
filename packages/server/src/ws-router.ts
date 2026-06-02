@@ -623,6 +623,20 @@ export function createWsRouter({
         },
         planMode: false,
       },
+      antigravity: {
+        model: "gemini-3.5-flash",
+        modelOptions: {
+          reasoningEffort: "high",
+        },
+        planMode: false,
+      },
+      pi: {
+        model: "gpt-5.5",
+        modelOptions: {
+          reasoningEffort: "high",
+        },
+        planMode: false,
+      },
     },
     warning: null,
     filePathDisplay: "~/.kanna/data/settings.json",
@@ -653,6 +667,22 @@ export function createWsRouter({
         modelOptions: {
           ...snapshot.providerDefaults.codex.modelOptions,
           ...patch.providerDefaults?.codex?.modelOptions,
+        },
+      },
+      antigravity: {
+        ...snapshot.providerDefaults.antigravity,
+        ...patch.providerDefaults?.antigravity,
+        modelOptions: {
+          ...snapshot.providerDefaults.antigravity.modelOptions,
+          ...patch.providerDefaults?.antigravity?.modelOptions,
+        },
+      },
+      pi: {
+        ...snapshot.providerDefaults.pi,
+        ...patch.providerDefaults?.pi,
+        modelOptions: {
+          ...snapshot.providerDefaults.pi.modelOptions,
+          ...patch.providerDefaults?.pi?.modelOptions,
         },
       },
     },

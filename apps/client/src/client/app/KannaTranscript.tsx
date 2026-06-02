@@ -8,6 +8,7 @@ import { AccountInfoMessage } from "../components/messages/AccountInfoMessage"
 import { TextMessage } from "../components/messages/TextMessage"
 import { AskUserQuestionMessage } from "../components/messages/AskUserQuestionMessage"
 import { ExitPlanModeMessage } from "../components/messages/ExitPlanModeMessage"
+import { CliPermissionRequestMessage } from "../components/messages/CliPermissionRequestMessage"
 import { TodoWriteMessage } from "../components/messages/TodoWriteMessage"
 import { ToolCallMessage } from "../components/messages/ToolCallMessage"
 import { ResultMessage } from "../components/messages/ResultMessage"
@@ -19,7 +20,7 @@ import { CollapsedToolGroup } from "../components/messages/CollapsedToolGroup"
 import { OpenLocalLinkProvider, type OpenLocalLinkTarget } from "../components/messages/shared"
 import { CHAT_SELECTION_ZONE_ATTRIBUTE } from "./chatFocusPolicy"
 
-const SPECIAL_TOOL_NAMES = new Set(["AskUserQuestion", "ExitPlanMode", "TodoWrite"])
+const SPECIAL_TOOL_NAMES = new Set(["AskUserQuestion", "ExitPlanMode", "CliPermissionRequest", "TodoWrite"])
 
 export type TranscriptRenderItem =
   | { type: "single"; message: HydratedTranscriptMessage; index: number }
@@ -36,6 +37,7 @@ export interface ResolvedSingleTranscriptRow {
   isFirstAccount: boolean
   isLatestAskUserQuestion: boolean
   isLatestExitPlanMode: boolean
+  isLatestCliPermissionRequest: boolean
   isLatestTodoWrite: boolean
   hideResult: boolean
   isFinalStatus: boolean
@@ -339,6 +341,7 @@ interface TranscriptSingleRowProps {
   isFirstAccount: boolean
   isLatestAskUserQuestion: boolean
   isLatestExitPlanMode: boolean
+  isLatestCliPermissionRequest: boolean
   isLatestTodoWrite: boolean
   hideResult: boolean
   isFinalStatus: boolean
@@ -348,6 +351,7 @@ interface TranscriptSingleRowProps {
     answers: AskUserQuestionAnswerMap
   ) => void
   onExitPlanModeConfirm: (toolUseId: string, confirmed: boolean, clearContext?: boolean, message?: string) => void
+  onCliPermissionRespond: (toolUseId: string, choice: string, approved: boolean) => void
 }
 
 const TranscriptSingleRow = memo(function TranscriptSingleRow({
@@ -359,11 +363,13 @@ const TranscriptSingleRow = memo(function TranscriptSingleRow({
   isFirstAccount,
   isLatestAskUserQuestion,
   isLatestExitPlanMode,
+  isLatestCliPermissionRequest,
   isLatestTodoWrite,
   hideResult,
   isFinalStatus,
   onAskUserQuestionSubmit,
   onExitPlanModeConfirm,
+  onCliPermissionRespond,
 }: TranscriptSingleRowProps) {
   let rendered: React.ReactNode = null
 
@@ -402,6 +408,17 @@ const TranscriptSingleRow = memo(function TranscriptSingleRow({
               message={message}
               onConfirm={onExitPlanModeConfirm}
               isLatest={isLatestExitPlanMode}
+            />
+          )
+          break
+        }
+        if (message.toolKind === "cli_permission_request") {
+          rendered = (
+            <CliPermissionRequestMessage
+              key={message.id}
+              message={message}
+              onRespond={onCliPermissionRespond}
+              isLatest={isLatestCliPermissionRequest}
             />
           )
           break
@@ -455,6 +472,7 @@ const TranscriptSingleRow = memo(function TranscriptSingleRow({
   && prev.isFirstAccount === next.isFirstAccount
   && prev.isLatestAskUserQuestion === next.isLatestAskUserQuestion
   && prev.isLatestExitPlanMode === next.isLatestExitPlanMode
+  && prev.isLatestCliPermissionRequest === next.isLatestCliPermissionRequest
   && prev.isLatestTodoWrite === next.isLatestTodoWrite
   && prev.hideResult === next.hideResult
   && prev.isFinalStatus === next.isFinalStatus
@@ -549,6 +567,7 @@ export function buildResolvedTranscriptRows(
       isFirstAccount: renderState.isFirstAccount,
       isLatestAskUserQuestion: item.message.id === latestToolIds.AskUserQuestion,
       isLatestExitPlanMode: item.message.id === latestToolIds.ExitPlanMode,
+      isLatestCliPermissionRequest: item.message.id === latestToolIds.CliPermissionRequest,
       isLatestTodoWrite: renderState.isLatestTodoWrite,
       hideResult: renderState.hideResult,
       isFinalStatus: renderState.isFinalStatus,
@@ -574,6 +593,7 @@ interface KannaTranscriptProps {
     answers: AskUserQuestionAnswerMap
   ) => void
   onExitPlanModeConfirm: (toolUseId: string, confirmed: boolean, clearContext?: boolean, message?: string) => void
+  onCliPermissionRespond: (toolUseId: string, choice: string, approved: boolean) => void
 }
 
 interface KannaTranscriptRowProps {
@@ -586,6 +606,7 @@ interface KannaTranscriptRowProps {
     answers: AskUserQuestionAnswerMap
   ) => void
   onExitPlanModeConfirm: (toolUseId: string, confirmed: boolean, clearContext?: boolean, message?: string) => void
+  onCliPermissionRespond: (toolUseId: string, choice: string, approved: boolean) => void
 }
 
 export const KannaTranscriptRow = memo(function KannaTranscriptRow({
@@ -594,6 +615,7 @@ export const KannaTranscriptRow = memo(function KannaTranscriptRow({
   onToolGroupExpandedChange,
   onAskUserQuestionSubmit,
   onExitPlanModeConfirm,
+  onCliPermissionRespond,
 }: KannaTranscriptRowProps) {
   if (row.kind === "tool-group") {
     return (
@@ -619,11 +641,13 @@ export const KannaTranscriptRow = memo(function KannaTranscriptRow({
       isFirstAccount={row.isFirstAccount}
       isLatestAskUserQuestion={row.isLatestAskUserQuestion}
       isLatestExitPlanMode={row.isLatestExitPlanMode}
+      isLatestCliPermissionRequest={row.isLatestCliPermissionRequest}
       isLatestTodoWrite={row.isLatestTodoWrite}
       hideResult={row.hideResult}
       isFinalStatus={row.isFinalStatus}
       onAskUserQuestionSubmit={onAskUserQuestionSubmit}
       onExitPlanModeConfirm={onExitPlanModeConfirm}
+      onCliPermissionRespond={onCliPermissionRespond}
     />
   )
 }, (prev, next) => {
@@ -652,6 +676,7 @@ export const KannaTranscriptRow = memo(function KannaTranscriptRow({
       && prev.row.isFirstAccount === next.row.isFirstAccount
       && prev.row.isLatestAskUserQuestion === next.row.isLatestAskUserQuestion
       && prev.row.isLatestExitPlanMode === next.row.isLatestExitPlanMode
+      && prev.row.isLatestCliPermissionRequest === next.row.isLatestCliPermissionRequest
       && prev.row.isLatestTodoWrite === next.row.isLatestTodoWrite
       && prev.row.hideResult === next.row.hideResult
       && prev.row.isFinalStatus === next.row.isFinalStatus
@@ -669,6 +694,7 @@ function KannaTranscriptImpl({
   onOpenLocalLink,
   onAskUserQuestionSubmit,
   onExitPlanModeConfirm,
+  onCliPermissionRespond,
 }: KannaTranscriptProps) {
   const [toolGroupExpanded, setToolGroupExpanded] = useState<Record<string, boolean>>({})
   const rows = useMemo(() => buildResolvedTranscriptRows(messages, {
@@ -700,6 +726,7 @@ function KannaTranscriptImpl({
             onToolGroupExpandedChange={handleToolGroupExpandedChange}
             onAskUserQuestionSubmit={onAskUserQuestionSubmit}
             onExitPlanModeConfirm={onExitPlanModeConfirm}
+            onCliPermissionRespond={onCliPermissionRespond}
           />
         </div>
       ))}

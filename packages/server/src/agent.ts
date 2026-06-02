@@ -17,6 +17,8 @@ import { EventStore } from "./event-store"
 import type { AnalyticsReporter } from "./analytics"
 import { NoopAnalyticsReporter } from "./analytics"
 import { CodexAppServerManager } from "./codex-app-server"
+import { AntigravityAppServerManager } from "./antigravity-app-server"
+import { PiAppServerManager } from "./pi-app-server"
 import { type GenerateChatTitleResult, generateTitleForChatDetailed } from "./generate-title"
 import type { HarnessEvent, HarnessToolRequest, HarnessTurn } from "./harness-types"
 import type { WorkflowRuntimeStore } from "./workflow-runtime-store"
@@ -25,6 +27,8 @@ import {
   getServerProviderCatalog,
   normalizeClaudeModelOptions,
   normalizeCodexModelOptions,
+  normalizeAntigravityModelOptions,
+  normalizePiModelOptions,
   normalizeServerModel,
 } from "./provider-catalog"
 import { resolveClaudeApiModelId } from "@kanna/shared/types"
@@ -51,7 +55,7 @@ const CLAUDE_TOOLSET = [
 
 interface PendingToolRequest {
   toolUseId: string
-  tool: NormalizedToolCall & { toolKind: "ask_user_question" | "exit_plan_mode" }
+  tool: NormalizedToolCall & { toolKind: "ask_user_question" | "exit_plan_mode" | "cli_permission_request" }
   resolve: (result: unknown) => void
 }
 
@@ -106,6 +110,8 @@ interface AgentCoordinatorArgs {
   workflowStore?: WorkflowRuntimeStore
   analytics?: AnalyticsReporter
   codexManager?: CodexAppServerManager
+  antigravityManager?: AntigravityAppServerManager
+  piManager?: PiAppServerManager
   generateTitle?: (messageContent: string, cwd: string) => Promise<GenerateChatTitleResult>
   startClaudeSession?: (args: {
     localPath: string
@@ -242,12 +248,20 @@ export function buildPromptText(content: string, attachments: ChatAttachment[]) 
 }
 
 function discardedToolResult(
-  tool: NormalizedToolCall & { toolKind: "ask_user_question" | "exit_plan_mode" }
+  tool: NormalizedToolCall & { toolKind: "ask_user_question" | "exit_plan_mode" | "cli_permission_request" }
 ) {
   if (tool.toolKind === "ask_user_question") {
     return {
       discarded: true,
       answers: {},
+    }
+  }
+
+  if (tool.toolKind === "cli_permission_request") {
+    return {
+      discarded: true,
+      choice: "4",
+      approved: false,
     }
   }
 
@@ -679,6 +693,8 @@ export class AgentCoordinator {
   private readonly onStateChange: (chatId?: string, options?: { immediate?: boolean }) => void
   private readonly analytics: AnalyticsReporter
   private readonly codexManager: CodexAppServerManager
+  private readonly antigravityManager: AntigravityAppServerManager
+  private readonly piManager: PiAppServerManager
   private readonly generateTitle: (messageContent: string, cwd: string) => Promise<GenerateChatTitleResult>
   private readonly startClaudeSessionFn: NonNullable<AgentCoordinatorArgs["startClaudeSession"]>
   private readonly onWorkflowStateChange?: (projectId: string) => void
@@ -694,6 +710,8 @@ export class AgentCoordinator {
     this.onStateChange = args.onStateChange
     this.analytics = args.analytics ?? NoopAnalyticsReporter
     this.codexManager = args.codexManager ?? new CodexAppServerManager()
+    this.antigravityManager = args.antigravityManager ?? new AntigravityAppServerManager()
+    this.piManager = args.piManager ?? new PiAppServerManager()
     this.generateTitle = args.generateTitle ?? generateTitleForChatDetailed
     this.startClaudeSessionFn = args.startClaudeSession ?? startClaudeSession
     this.workflowStore = args.workflowStore
@@ -791,6 +809,28 @@ export class AgentCoordinator {
         effort: modelOptions.reasoningEffort,
         serviceTier: undefined,
         planMode: catalog.supportsPlanMode ? Boolean(options.planMode) : false,
+      }
+    }
+
+    if (provider === "antigravity") {
+      const model = normalizeServerModel(provider, options.model)
+      const modelOptions = normalizeAntigravityModelOptions(options.modelOptions, options.effort)
+      return {
+        model,
+        effort: modelOptions.reasoningEffort,
+        serviceTier: undefined,
+        planMode: false,
+      }
+    }
+
+    if (provider === "pi") {
+      const model = normalizeServerModel(provider, options.model)
+      const modelOptions = normalizePiModelOptions(options.modelOptions, options.effort)
+      return {
+        model,
+        effort: modelOptions.reasoningEffort,
+        serviceTier: undefined,
+        planMode: false,
       }
     }
 
@@ -929,7 +969,12 @@ export class AgentCoordinator {
     }
 
     const onToolRequest = async (request: HarnessToolRequest): Promise<unknown> => {
-      const active = this.activeTurns.get(args.chatId)
+      let active = this.activeTurns.get(args.chatId)
+      const waitStartedAt = Date.now()
+      while (!active && Date.now() - waitStartedAt < 5_000) {
+        await new Promise((resolve) => setTimeout(resolve, 25))
+        active = this.activeTurns.get(args.chatId)
+      }
       if (!active) {
         throw new Error("Chat turn ended unexpectedly")
       }
@@ -961,6 +1006,66 @@ export class AgentCoordinator {
         planMode: args.planMode,
         sessionToken: chat.pendingForkSessionToken ?? chat.sessionToken,
         forkSession: Boolean(chat.pendingForkSessionToken),
+        onToolRequest,
+      })
+      logSendToStartingProfile(args.profile, "start_turn.provider_boot.ready", {
+        chatId: args.chatId,
+        provider: args.provider,
+        model: args.model,
+      })
+    } else if (args.provider === "antigravity") {
+      logSendToStartingProfile(args.profile, "start_turn.provider_boot.begin", {
+        chatId: args.chatId,
+        provider: args.provider,
+        model: args.model,
+      })
+      await this.antigravityManager.startSession({
+        chatId: args.chatId,
+        cwd: project.localPath,
+        model: args.model,
+        effort: args.effort as any,
+        sessionToken: chat.sessionToken,
+      })
+      logSendToStartingProfile(args.profile, "start_turn.session_ready", {
+        chatId: args.chatId,
+        provider: args.provider,
+        model: args.model,
+      })
+      turn = await this.antigravityManager.startTurn({
+        chatId: args.chatId,
+        content: buildPromptText(args.content, args.attachments),
+        model: args.model,
+        effort: args.effort as any,
+        onToolRequest,
+      })
+      logSendToStartingProfile(args.profile, "start_turn.provider_boot.ready", {
+        chatId: args.chatId,
+        provider: args.provider,
+        model: args.model,
+      })
+    } else if (args.provider === "pi") {
+      logSendToStartingProfile(args.profile, "start_turn.provider_boot.begin", {
+        chatId: args.chatId,
+        provider: args.provider,
+        model: args.model,
+      })
+      await this.piManager.startSession({
+        chatId: args.chatId,
+        cwd: project.localPath,
+        model: args.model,
+        effort: args.effort as any,
+        sessionToken: chat.sessionToken,
+      })
+      logSendToStartingProfile(args.profile, "start_turn.session_ready", {
+        chatId: args.chatId,
+        provider: args.provider,
+        model: args.model,
+      })
+      turn = await this.piManager.startTurn({
+        chatId: args.chatId,
+        content: buildPromptText(args.content, args.attachments),
+        model: args.model,
+        effort: args.effort as any,
         onToolRequest,
       })
       logSendToStartingProfile(args.profile, "start_turn.provider_boot.ready", {

@@ -2,6 +2,7 @@ import type {
   AskUserQuestionItem,
   AskUserQuestionAnswerMap,
   AskUserQuestionToolResult,
+  CliPermissionRequestToolResult,
   ExitPlanModeToolResult,
   HydratedToolCall,
   NormalizedToolCall,
@@ -22,6 +23,29 @@ export function normalizeToolCall(args: {
   const { toolName, toolId, input } = args
 
   switch (toolName) {
+    case "CliPermissionRequest":
+      return {
+        kind: "tool",
+        toolKind: "cli_permission_request",
+        toolName,
+        toolId,
+        input: {
+          provider: input.provider === "pi" ? "pi" : "antigravity",
+          command: typeof input.command === "string" ? input.command : "",
+          prompt: typeof input.prompt === "string" ? input.prompt : "",
+          options: Array.isArray(input.options)
+            ? input.options
+              .map((option) => asRecord(option))
+              .filter((option): option is Record<string, unknown> => Boolean(option))
+              .map((option) => ({
+                value: typeof option.value === "string" ? option.value : "",
+                label: typeof option.label === "string" ? option.label : "",
+              }))
+              .filter((option) => option.value && option.label)
+            : [],
+        },
+        rawInput: input,
+      }
     case "AskUserQuestion":
       return {
         kind: "tool",
@@ -302,6 +326,15 @@ export function hydrateToolResult(tool: NormalizedToolCall, raw: unknown): Hydra
         message: typeof record?.message === "string" ? record.message : undefined,
         ...(record?.discarded === true ? { discarded: true } : {}),
       } satisfies ExitPlanModeToolResult
+    }
+    case "cli_permission_request": {
+      const record = asRecord(parsed)
+      const choice = typeof record?.choice === "string" ? record.choice : ""
+      return {
+        choice,
+        approved: typeof record?.approved === "boolean" ? record.approved : choice !== "4",
+        ...(record?.discarded === true ? { discarded: true } : {}),
+      } satisfies CliPermissionRequestToolResult
     }
     case "read_file":
       if (typeof parsed === "string") {

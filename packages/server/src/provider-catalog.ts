@@ -1,7 +1,9 @@
 import type {
   AgentProvider,
+  AntigravityModelOptions,
   ClaudeModelOptions,
   CodexModelOptions,
+  PiModelOptions,
   ClaudeContextWindow,
   ModelOptions,
   ProviderCatalogEntry,
@@ -9,13 +11,17 @@ import type {
   ServiceTier,
 } from "@kanna/shared/types"
 import {
+  DEFAULT_ANTIGRAVITY_MODEL_OPTIONS,
   DEFAULT_CLAUDE_MODEL_OPTIONS,
   DEFAULT_CODEX_MODEL_OPTIONS,
+  DEFAULT_PI_MODEL_OPTIONS,
   PROVIDERS,
   normalizeClaudeContextWindow,
   normalizeProviderModelId,
+  isAntigravityReasoningEffort,
   isClaudeReasoningEffort,
   isCodexReasoningEffort,
+  isPiReasoningEffort,
 } from "@kanna/shared/types"
 
 const HARD_CODED_CODEX_MODELS: ProviderModelOption[] = [
@@ -84,4 +90,32 @@ export function normalizeCodexModelOptions(modelOptions?: ModelOptions, legacyEf
 
 export function codexServiceTierFromModelOptions(modelOptions: CodexModelOptions): ServiceTier | undefined {
   return modelOptions.fastMode ? "fast" : undefined
+}
+
+export function normalizeAntigravityModelOptions(
+  modelOptions?: ModelOptions,
+  legacyEffort?: string
+): AntigravityModelOptions {
+  const reasoningEffort = modelOptions?.antigravity?.reasoningEffort
+  return {
+    reasoningEffort: isAntigravityReasoningEffort(reasoningEffort)
+      ? reasoningEffort
+      : isAntigravityReasoningEffort(legacyEffort)
+        ? legacyEffort
+        : DEFAULT_ANTIGRAVITY_MODEL_OPTIONS.reasoningEffort,
+  }
+}
+
+export function normalizePiModelOptions(
+  modelOptions?: ModelOptions,
+  legacyEffort?: string
+): PiModelOptions {
+  const reasoningEffort = modelOptions?.pi?.reasoningEffort
+  return {
+    reasoningEffort: isPiReasoningEffort(reasoningEffort)
+      ? reasoningEffort
+      : isPiReasoningEffort(legacyEffort)
+        ? legacyEffort
+        : DEFAULT_PI_MODEL_OPTIONS.reasoningEffort,
+  }
 }

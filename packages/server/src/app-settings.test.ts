@@ -51,6 +51,20 @@ function expectedSettingsSnapshot(filePath: string, overrides: Partial<AppSettin
         },
         planMode: false,
       },
+      antigravity: {
+        model: "gemini-3.5-flash",
+        modelOptions: {
+          reasoningEffort: "high",
+        },
+        planMode: false,
+      },
+      pi: {
+        model: "gpt-5.5",
+        modelOptions: {
+          reasoningEffort: "high",
+        },
+        planMode: false,
+      },
     },
     warning: null,
     filePathDisplay: filePath,
@@ -135,6 +149,14 @@ describe("AppSettingsManager", () => {
         codex: {
           modelOptions: { reasoningEffort: "high", fastMode: true },
         },
+        antigravity: {
+          model: "gemini-2.5-flash",
+          modelOptions: { reasoningEffort: "medium" },
+        },
+        pi: {
+          model: "gpt-5.3-codex",
+          modelOptions: { reasoningEffort: "xhigh" },
+        },
       },
     })
     const nextPayload = JSON.parse(await readFile(filePath, "utf8")) as {
@@ -143,7 +165,11 @@ describe("AppSettingsManager", () => {
       chatSoundId: string
       terminal: { scrollbackLines: number; minColumnWidth: number }
       editor: { preset: string; commandTemplate: string }
-      providerDefaults: { codex: { modelOptions: { fastMode: boolean } } }
+      providerDefaults: {
+        codex: { modelOptions: { fastMode: boolean } }
+        antigravity: { model: string; modelOptions: { reasoningEffort: string } }
+        pi: { model: string; modelOptions: { reasoningEffort: string } }
+      }
     }
 
     expect(snapshot.theme).toBe("dark")
@@ -153,9 +179,21 @@ describe("AppSettingsManager", () => {
     expect(snapshot.editor.preset).toBe("vscode")
     expect(snapshot.editor.commandTemplate).toBe("cursor {path}")
     expect(snapshot.providerDefaults.codex.modelOptions.fastMode).toBe(true)
+    expect(snapshot.providerDefaults.antigravity).toEqual({
+      model: "gemini-2.5-flash",
+      modelOptions: { reasoningEffort: "medium" },
+      planMode: false,
+    })
+    expect(snapshot.providerDefaults.pi).toEqual({
+      model: "gpt-5.3-codex",
+      modelOptions: { reasoningEffort: "xhigh" },
+      planMode: false,
+    })
     expect(nextPayload.analyticsUserId).toBe(initialPayload.analyticsUserId)
     expect(nextPayload.theme).toBe("dark")
     expect(nextPayload.chatSoundId).toBe("glass")
+    expect(nextPayload.providerDefaults.antigravity.model).toBe("gemini-2.5-flash")
+    expect(nextPayload.providerDefaults.pi.modelOptions.reasoningEffort).toBe("xhigh")
 
     manager.dispose()
   })

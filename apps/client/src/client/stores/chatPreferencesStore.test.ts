@@ -67,6 +67,16 @@ describe("migrateChatPreferencesState", () => {
           modelOptions: { reasoningEffort: "minimal", fastMode: true },
           planMode: false,
         },
+        antigravity: {
+          model: "gemini-3.5-flash",
+          modelOptions: { reasoningEffort: "high" },
+          planMode: false,
+        },
+        pi: {
+          model: "gpt-5.5",
+          modelOptions: { reasoningEffort: "high" },
+          planMode: false,
+        },
       },
       chatStates: {},
       legacyComposerState: {

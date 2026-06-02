@@ -46,10 +46,10 @@ That's it. Kanna opens in your browser at [`localhost:3210`](http://localhost:32
 
 ## Features
 
-- **Multi-provider support** — switch between Claude and Codex (OpenAI) from the chat input, with per-provider model selection, reasoning effort controls, and Codex fast mode
+- **Multi-provider support** — switch between Claude, Codex, Antigravity, and Pi Agent from the chat input, with per-provider model selection and reasoning controls
 - **Project-first sidebar** — chats grouped under projects, with live status indicators (idle, running, waiting, failed)
 - **Drag-and-drop project ordering** — reorder project groups in the sidebar with persistent ordering
-- **Local project discovery** — auto-discovers projects from both Claude and Codex local history
+- **Local project discovery** — auto-discovers projects from Claude, Codex, Antigravity, and Pi local history
 - **Rich transcript rendering** — hydrated tool calls, collapsible tool groups, plan mode dialogs, and interactive prompts with full result display
 - **Quick responses** — lightweight structured queries (e.g. title generation) via Haiku with automatic Codex fallback
 - **Plan mode** — review and approve agent plans before execution
@@ -232,7 +232,7 @@ src/
 │   ├── quick-response.ts    Structured queries with provider fallback
 │   ├── ws-router.ts WebSocket message routing & subscriptions
 │   ├── event-store.ts  JSONL persistence, replay & compaction
-│   ├── discovery.ts Auto-discover projects from Claude and Codex local state
+│   ├── discovery.ts Auto-discover projects from provider local state
 │   ├── read-models.ts  Derive view models from event state
 │   └── events.ts    Event type definitions
 └── shared/          Shared between client & server

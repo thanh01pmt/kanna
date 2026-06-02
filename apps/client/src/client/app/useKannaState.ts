@@ -717,6 +717,11 @@ export interface KannaState {
     clearContext?: boolean,
     message?: string
   ) => Promise<void>
+  handleCliPermission: (
+    toolUseId: string,
+    choice: string,
+    approved: boolean
+  ) => Promise<void>
   handleExportStandalone: (chatId?: string | null) => Promise<StandaloneTranscriptExportCommandResult | null>
   handleCloseStandaloneShareDialog: () => void
   handleOpenStandaloneShareLink: () => void
@@ -2010,6 +2015,23 @@ export function useKannaState(activeChatId: string | null): KannaState {
     }
   }, [activeChatId, socket])
 
+  const handleCliPermission = useCallback(async (toolUseId: string, choice: string, approved: boolean) => {
+    if (!activeChatId) return
+    try {
+      await socket.command({
+        type: "chat.respondTool",
+        chatId: activeChatId,
+        toolUseId,
+        result: {
+          choice,
+          approved,
+        },
+      })
+    } catch (error) {
+      setCommandError(error instanceof Error ? error.message : String(error))
+    }
+  }, [activeChatId, socket])
+
   return {
     socket,
     activeChatId,
@@ -2087,6 +2109,7 @@ export function useKannaState(activeChatId: string | null): KannaState {
     handleCompose,
     handleAskUserQuestion,
     handleExitPlanMode,
+    handleCliPermission,
     handleExportStandalone,
     handleCloseStandaloneShareDialog,
     handleOpenStandaloneShareLink,

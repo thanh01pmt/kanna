@@ -109,7 +109,7 @@ const sidebarItems = [
     id: "providers",
     label: "Providers",
     icon: MessageSquareQuote,
-    subtitle: "Manage the default chat provider and saved model defaults for Claude Code and Codex.",
+    subtitle: "Manage the default chat provider and saved model defaults for each agent provider.",
   },
   {
     id: "workflow",
@@ -2916,6 +2916,64 @@ export function SettingsPage() {
                           }}
                           planMode={providerDefaults.codex.planMode}
                           onPlanModeChange={(planMode) => handleProviderDefaultPlanModeChange("codex", planMode)}
+                          includePlanMode
+                          className="justify-start flex-wrap"
+                        />
+                      </div>
+                    </SettingsRow>
+
+                    <SettingsRow
+                      title="Antigravity Defaults"
+                      description="Saved defaults when using Antigravity."
+                      alignStart
+                    >
+                      <div className="max-w-[420px]">
+                        <ChatPreferenceControls
+                          availableProviders={PROVIDERS}
+                          selectedProvider="antigravity"
+                          showProviderPicker={false}
+                          providerLocked
+                          model={providerDefaults.antigravity.model}
+                          modelOptions={providerDefaults.antigravity.modelOptions}
+                          onModelChange={(_, model) => {
+                            handleProviderDefaultModelChange("antigravity", model)
+                          }}
+                          onModelOptionChange={(change) => {
+                            if (change.type === "antigravityReasoningEffort") {
+                              handleProviderDefaultModelOptionsChange("antigravity", { reasoningEffort: change.effort as any })
+                            }
+                          }}
+                          planMode={providerDefaults.antigravity.planMode}
+                          onPlanModeChange={(planMode) => handleProviderDefaultPlanModeChange("antigravity", planMode)}
+                          includePlanMode
+                          className="justify-start flex-wrap"
+                        />
+                      </div>
+                    </SettingsRow>
+
+                    <SettingsRow
+                      title="Pi Agent Defaults"
+                      description="Saved defaults when using Pi Agent."
+                      alignStart
+                    >
+                      <div className="max-w-[420px]">
+                        <ChatPreferenceControls
+                          availableProviders={PROVIDERS}
+                          selectedProvider="pi"
+                          showProviderPicker={false}
+                          providerLocked
+                          model={providerDefaults.pi.model}
+                          modelOptions={providerDefaults.pi.modelOptions}
+                          onModelChange={(_, model) => {
+                            handleProviderDefaultModelChange("pi", model)
+                          }}
+                          onModelOptionChange={(change) => {
+                            if (change.type === "piReasoningEffort") {
+                              handleProviderDefaultModelOptionsChange("pi", { reasoningEffort: change.effort as any })
+                            }
+                          }}
+                          planMode={providerDefaults.pi.planMode}
+                          onPlanModeChange={(planMode) => handleProviderDefaultPlanModeChange("pi", planMode)}
                           includePlanMode
                           className="justify-start flex-wrap"
                         />

@@ -284,9 +284,125 @@ export class CodexProjectDiscoveryAdapter implements ProjectDiscoveryAdapter {
   }
 }
 
+export class AntigravityProjectDiscoveryAdapter implements ProjectDiscoveryAdapter {
+  readonly provider = "antigravity" as const
+
+  scan(homeDir: string = homedir()): ProviderDiscoveredProject[] {
+    const projectsDir = path.join(homeDir, ".antigravity", "projects")
+    if (!existsSync(projectsDir)) {
+      return []
+    }
+
+    const projects: ProviderDiscoveredProject[] = []
+
+    for (const entry of readdirSync(projectsDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue
+
+      const filePath = path.join(projectsDir, entry.name)
+      try {
+        const fileStat = statSync(filePath)
+        const firstLine = readFileSync(filePath, "utf8").split("\n", 1)[0]
+        if (!firstLine?.trim()) continue
+
+        const record = parseJsonRecord(firstLine)
+        if (!record) continue
+
+        const cwd = typeof record.cwd === "string"
+          ? record.cwd
+          : (() => {
+            const payload = record.payload
+            if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+              const p = payload as Record<string, unknown>
+              return typeof p.cwd === "string" ? p.cwd : null
+            }
+            return null
+          })()
+
+        if (!cwd || !path.isAbsolute(cwd)) continue
+
+        const normalizedPath = normalizeExistingDirectory(cwd)
+        if (!normalizedPath) continue
+
+        projects.push({
+          provider: this.provider,
+          localPath: normalizedPath,
+          title: path.basename(normalizedPath) || normalizedPath,
+          modifiedAt: fileStat.mtimeMs,
+        })
+      } catch {
+        // skip unreadable files
+      }
+    }
+
+    return mergeDiscoveredProjects(projects).map((project) => ({
+      provider: this.provider,
+      ...project,
+    }))
+  }
+}
+
+export class PiProjectDiscoveryAdapter implements ProjectDiscoveryAdapter {
+  readonly provider = "pi" as const
+
+  scan(homeDir: string = homedir()): ProviderDiscoveredProject[] {
+    const projectsDir = path.join(homeDir, ".pi", "projects")
+    if (!existsSync(projectsDir)) {
+      return []
+    }
+
+    const projects: ProviderDiscoveredProject[] = []
+
+    for (const entry of readdirSync(projectsDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue
+
+      const filePath = path.join(projectsDir, entry.name)
+      try {
+        const fileStat = statSync(filePath)
+        const firstLine = readFileSync(filePath, "utf8").split("\n", 1)[0]
+        if (!firstLine?.trim()) continue
+
+        const record = parseJsonRecord(firstLine)
+        if (!record) continue
+
+        const cwd = typeof record.cwd === "string"
+          ? record.cwd
+          : (() => {
+            const payload = record.payload
+            if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+              const p = payload as Record<string, unknown>
+              return typeof p.cwd === "string" ? p.cwd : null
+            }
+            return null
+          })()
+
+        if (!cwd || !path.isAbsolute(cwd)) continue
+
+        const normalizedPath = normalizeExistingDirectory(cwd)
+        if (!normalizedPath) continue
+
+        projects.push({
+          provider: this.provider,
+          localPath: normalizedPath,
+          title: path.basename(normalizedPath) || normalizedPath,
+          modifiedAt: fileStat.mtimeMs,
+        })
+      } catch {
+        // skip unreadable files
+      }
+    }
+
+    return mergeDiscoveredProjects(projects).map((project) => ({
+      provider: this.provider,
+      ...project,
+    }))
+  }
+}
+
 export const DEFAULT_PROJECT_DISCOVERY_ADAPTERS: ProjectDiscoveryAdapter[] = [
   new ClaudeProjectDiscoveryAdapter(),
   new CodexProjectDiscoveryAdapter(),
+  new AntigravityProjectDiscoveryAdapter(),
+  new PiProjectDiscoveryAdapter(),
 ]
 
 export function discoverProjects(

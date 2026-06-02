@@ -37,10 +37,17 @@ function normalizeString(value: unknown) {
   return typeof value === "string" ? value.trim() : ""
 }
 
+function normalizeOpenAICompatibleBaseUrl(baseUrl: string) {
+  let normalized = baseUrl.trim().replace(/\/+$/u, "")
+  normalized = normalized.replace(/\/chat\/completions$/u, "")
+  normalized = normalized.replace(/\/responses$/u, "")
+  return normalized
+}
+
 export function resolveLlmProviderBaseUrl(provider: LlmProviderKind, baseUrl: string) {
   if (provider === "openai") return OPENAI_BASE_URL
   if (provider === "openrouter") return OPENROUTER_BASE_URL
-  return baseUrl.trim()
+  return normalizeOpenAICompatibleBaseUrl(baseUrl)
 }
 
 export function resolveLlmProviderDefaultModel(provider: LlmProviderKind) {
@@ -68,7 +75,9 @@ export function normalizeLlmProviderSnapshot(
   const provider = resolveProvider(source.provider)
   const apiKey = normalizeString(source.apiKey)
   const model = normalizeString(source.model)
-  const baseUrl = normalizeString(source.baseUrl)
+  const baseUrl = provider === "custom"
+    ? normalizeOpenAICompatibleBaseUrl(normalizeString(source.baseUrl))
+    : normalizeString(source.baseUrl)
 
   if (!provider) {
     warnings.push("provider must be one of openai, openrouter, or custom")
@@ -189,10 +198,10 @@ export async function validateLlmProviderCredentials(
       apiKey: snapshot.apiKey,
       baseURL: snapshot.resolvedBaseUrl,
     })
-    await client.responses.create({
+    await client.chat.completions.create({
       model: snapshot.model,
-      input: "Reply with ok.",
-      max_output_tokens: 5,
+      messages: [{ role: "user", content: "Reply with ok." }],
+      max_tokens: 5,
     })
     return {
       ok: true,

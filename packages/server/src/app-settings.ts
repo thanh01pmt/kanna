@@ -7,14 +7,20 @@ import { getSettingsFilePath, LOG_PREFIX } from "@kanna/shared/branding"
 import {
   DEFAULT_CLAUDE_MODEL_OPTIONS,
   DEFAULT_CODEX_MODEL_OPTIONS,
+  DEFAULT_ANTIGRAVITY_MODEL_OPTIONS,
+  DEFAULT_PI_MODEL_OPTIONS,
   isClaudeReasoningEffort,
   isCodexReasoningEffort,
+  isAntigravityReasoningEffort,
+  isPiReasoningEffort,
   normalizeClaudeContextWindow,
   normalizeClaudeModelId,
   normalizeCodexModelId,
+  normalizeProviderModelId,
   supportsClaudeMaxReasoningEffort,
   type AppSettingsPatch,
   type AppSettingsSnapshot,
+  type AntigravityModelOptions,
   type AppThemePreference,
   type ChatProviderPreferences,
   type ChatSoundId,
@@ -23,6 +29,7 @@ import {
   type CodexModelOptions,
   type DefaultProviderPreference,
   type EditorPreset,
+  type PiModelOptions,
   type ProviderPreference,
 } from "@kanna/shared/types"
 
@@ -45,6 +52,8 @@ interface AppSettingsFile {
   providerDefaults?: {
     claude?: Partial<ProviderPreference<Partial<ClaudeModelOptions>>> & { effort?: unknown }
     codex?: Partial<ProviderPreference<Partial<CodexModelOptions>>> & { effort?: unknown }
+    antigravity?: Partial<ProviderPreference<Partial<AntigravityModelOptions>>> & { effort?: unknown }
+    pi?: Partial<ProviderPreference<Partial<PiModelOptions>>> & { effort?: unknown }
   }
 }
 
@@ -108,6 +117,16 @@ function createDefaultProviderDefaults(): ChatProviderPreferences {
       modelOptions: { ...DEFAULT_CODEX_MODEL_OPTIONS },
       planMode: false,
     },
+    antigravity: {
+      model: "gemini-3.5-flash",
+      modelOptions: { ...DEFAULT_ANTIGRAVITY_MODEL_OPTIONS },
+      planMode: false,
+    },
+    pi: {
+      model: "gpt-5.5",
+      modelOptions: { ...DEFAULT_PI_MODEL_OPTIONS },
+      planMode: false,
+    },
   }
 }
 
@@ -143,7 +162,9 @@ function normalizeChatSoundId(value: unknown): ChatSoundId {
 }
 
 function normalizeDefaultProvider(value: unknown): DefaultProviderPreference {
-  return value === "claude" || value === "codex" || value === "last_used" ? value : "last_used"
+  return value === "claude" || value === "codex" || value === "antigravity" || value === "pi" || value === "last_used"
+    ? value
+    : "last_used"
 }
 
 function normalizeEditorPreset(value: unknown): EditorPreset {
@@ -204,11 +225,53 @@ function normalizeCodexPreference(value?: {
   }
 }
 
+function normalizeAntigravityPreference(value?: {
+  model?: unknown
+  effort?: unknown
+  modelOptions?: Partial<Record<keyof AntigravityModelOptions, unknown>>
+  planMode?: unknown
+}): ProviderPreference<AntigravityModelOptions> {
+  const reasoningEffort = value?.modelOptions?.reasoningEffort
+  return {
+    model: normalizeProviderModelId("antigravity", typeof value?.model === "string" ? value.model : undefined),
+    modelOptions: {
+      reasoningEffort: isAntigravityReasoningEffort(reasoningEffort)
+        ? reasoningEffort
+        : isAntigravityReasoningEffort(value?.effort)
+          ? value.effort
+          : DEFAULT_ANTIGRAVITY_MODEL_OPTIONS.reasoningEffort,
+    },
+    planMode: value?.planMode === true,
+  }
+}
+
+function normalizePiPreference(value?: {
+  model?: unknown
+  effort?: unknown
+  modelOptions?: Partial<Record<keyof PiModelOptions, unknown>>
+  planMode?: unknown
+}): ProviderPreference<PiModelOptions> {
+  const reasoningEffort = value?.modelOptions?.reasoningEffort
+  return {
+    model: normalizeProviderModelId("pi", typeof value?.model === "string" ? value.model : undefined),
+    modelOptions: {
+      reasoningEffort: isPiReasoningEffort(reasoningEffort)
+        ? reasoningEffort
+        : isPiReasoningEffort(value?.effort)
+          ? value.effort
+          : DEFAULT_PI_MODEL_OPTIONS.reasoningEffort,
+    },
+    planMode: value?.planMode === true,
+  }
+}
+
 function normalizeProviderDefaults(value: AppSettingsFile["providerDefaults"] | undefined): ChatProviderPreferences {
   const defaults = createDefaultProviderDefaults()
   return {
     claude: normalizeClaudePreference(value?.claude ?? defaults.claude),
     codex: normalizeCodexPreference(value?.codex ?? defaults.codex),
+    antigravity: normalizeAntigravityPreference(value?.antigravity ?? defaults.antigravity),
+    pi: normalizePiPreference(value?.pi ?? defaults.pi),
   }
 }
 
@@ -346,6 +409,22 @@ function applyPatch(state: AppSettingsState, patch: AppSettingsPatch): AppSettin
         modelOptions: {
           ...state.providerDefaults.codex.modelOptions,
           ...patch.providerDefaults?.codex?.modelOptions,
+        },
+      },
+      antigravity: {
+        ...state.providerDefaults.antigravity,
+        ...patch.providerDefaults?.antigravity,
+        modelOptions: {
+          ...state.providerDefaults.antigravity.modelOptions,
+          ...patch.providerDefaults?.antigravity?.modelOptions,
+        },
+      },
+      pi: {
+        ...state.providerDefaults.pi,
+        ...patch.providerDefaults?.pi,
+        modelOptions: {
+          ...state.providerDefaults.pi.modelOptions,
+          ...patch.providerDefaults?.pi?.modelOptions,
         },
       },
     },

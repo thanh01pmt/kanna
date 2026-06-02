@@ -2,16 +2,23 @@ import { create } from "zustand"
 import {
   DEFAULT_CLAUDE_MODEL_OPTIONS,
   DEFAULT_CODEX_MODEL_OPTIONS,
+  DEFAULT_ANTIGRAVITY_MODEL_OPTIONS,
+  DEFAULT_PI_MODEL_OPTIONS,
   normalizeClaudeContextWindow,
   normalizeClaudeModelId,
   normalizeCodexModelId,
+  normalizeProviderModelId,
   isClaudeReasoningEffort,
   isCodexReasoningEffort,
+  isAntigravityReasoningEffort,
+  isPiReasoningEffort,
   supportsClaudeMaxReasoningEffort,
   type AgentProvider,
   type ChatProviderPreferences,
   type ClaudeModelOptions,
   type CodexModelOptions,
+  type AntigravityModelOptions,
+  type PiModelOptions,
   type DefaultProviderPreference,
   type ProviderPreference,
   type ProviderModelOptionsByProvider,
@@ -32,6 +39,18 @@ export type ComposerState =
     modelOptions: CodexModelOptions
     planMode: boolean
   }
+  | {
+    provider: "antigravity"
+    model: string
+    modelOptions: AntigravityModelOptions
+    planMode: boolean
+  }
+  | {
+    provider: "pi"
+    model: string
+    modelOptions: PiModelOptions
+    planMode: boolean
+  }
 
 export const NEW_CHAT_COMPOSER_ID = "__new__"
 
@@ -50,6 +69,18 @@ type LegacyPersistedChatPreferencesState = Partial<{
       modelOptions?: Partial<CodexModelOptions>
       planMode?: boolean
     }
+    antigravity?: {
+      model?: string
+      effort?: string
+      modelOptions?: Partial<AntigravityModelOptions>
+      planMode?: boolean
+    }
+    pi?: {
+      model?: string
+      effort?: string
+      modelOptions?: Partial<PiModelOptions>
+      planMode?: boolean
+    }
   }
   composerState: PersistedComposerState
   liveProvider: AgentProvider
@@ -64,6 +95,18 @@ type LegacyPersistedChatPreferencesState = Partial<{
       model?: string
       effort?: string
       modelOptions?: Partial<CodexModelOptions>
+      planMode?: boolean
+    }
+    antigravity?: {
+      model?: string
+      effort?: string
+      modelOptions?: Partial<AntigravityModelOptions>
+      planMode?: boolean
+    }
+    pi?: {
+      model?: string
+      effort?: string
+      modelOptions?: Partial<PiModelOptions>
       planMode?: boolean
     }
   }
@@ -84,6 +127,20 @@ type PersistedComposerState =
     modelOptions?: Partial<CodexModelOptions>
     planMode?: boolean
   }
+  | {
+    provider: "antigravity"
+    model?: string
+    effort?: string
+    modelOptions?: Partial<AntigravityModelOptions>
+    planMode?: boolean
+  }
+  | {
+    provider: "pi"
+    model?: string
+    effort?: string
+    modelOptions?: Partial<PiModelOptions>
+    planMode?: boolean
+  }
 
 type PersistedChatPreferencesState = Pick<
   ChatPreferencesState,
@@ -91,7 +148,7 @@ type PersistedChatPreferencesState = Pick<
 > & LegacyPersistedChatPreferencesState
 
 export function normalizeDefaultProvider(value?: string): DefaultProviderPreference {
-  if (value === "claude" || value === "codex") return value
+  if (value === "claude" || value === "codex" || value === "antigravity" || value === "pi") return value
   return "last_used"
 }
 
@@ -143,6 +200,46 @@ export function normalizeCodexPreference(value?: {
   }
 }
 
+export function normalizeAntigravityPreference(value?: {
+  model?: string
+  effort?: string
+  modelOptions?: Partial<AntigravityModelOptions>
+  planMode?: boolean
+}): ProviderPreference<AntigravityModelOptions> {
+  const reasoningEffort = value?.modelOptions?.reasoningEffort
+  return {
+    model: normalizeProviderModelId("antigravity", value?.model),
+    modelOptions: {
+      reasoningEffort: isAntigravityReasoningEffort(reasoningEffort)
+        ? reasoningEffort
+        : isAntigravityReasoningEffort(value?.effort)
+          ? value.effort
+          : DEFAULT_ANTIGRAVITY_MODEL_OPTIONS.reasoningEffort,
+    },
+    planMode: Boolean(value?.planMode),
+  }
+}
+
+export function normalizePiPreference(value?: {
+  model?: string
+  effort?: string
+  modelOptions?: Partial<PiModelOptions>
+  planMode?: boolean
+}): ProviderPreference<PiModelOptions> {
+  const reasoningEffort = value?.modelOptions?.reasoningEffort
+  return {
+    model: normalizeProviderModelId("pi", value?.model),
+    modelOptions: {
+      reasoningEffort: isPiReasoningEffort(reasoningEffort)
+        ? reasoningEffort
+        : isPiReasoningEffort(value?.effort)
+          ? value.effort
+          : DEFAULT_PI_MODEL_OPTIONS.reasoningEffort,
+    },
+    planMode: Boolean(value?.planMode),
+  }
+}
+
 function forcePersistedCodexPreference<T extends {
   model?: string
   effort?: string
@@ -189,6 +286,16 @@ export function createDefaultProviderDefaults(): ChatProviderPreferences {
       modelOptions: { ...DEFAULT_CODEX_MODEL_OPTIONS },
       planMode: false,
     },
+    antigravity: {
+      model: "gemini-3.5-flash",
+      modelOptions: { ...DEFAULT_ANTIGRAVITY_MODEL_OPTIONS },
+      planMode: false,
+    },
+    pi: {
+      model: "gpt-5.5",
+      modelOptions: { ...DEFAULT_PI_MODEL_OPTIONS },
+      planMode: false,
+    },
   }
 }
 
@@ -205,10 +312,24 @@ export function normalizeProviderDefaults(value?: {
     modelOptions?: Partial<CodexModelOptions>
     planMode?: boolean
   }
+  antigravity?: {
+    model?: string
+    effort?: string
+    modelOptions?: Partial<AntigravityModelOptions>
+    planMode?: boolean
+  }
+  pi?: {
+    model?: string
+    effort?: string
+    modelOptions?: Partial<PiModelOptions>
+    planMode?: boolean
+  }
 }): ChatProviderPreferences {
   return {
     claude: normalizeClaudePreference(value?.claude),
     codex: normalizeCodexPreference(value?.codex),
+    antigravity: normalizeAntigravityPreference(value?.antigravity),
+    pi: normalizePiPreference(value?.pi),
   }
 }
 
@@ -233,31 +354,63 @@ function composerFromProviderDefaults(
       modelOptions: { ...preference.modelOptions },
       planMode: preference.planMode,
     }
-  }
-
-  const preference = providerDefaults.codex
-  return {
-    provider: "codex",
-    model: preference.model,
-    modelOptions: { ...preference.modelOptions },
-    planMode: preference.planMode,
+  } else if (provider === "codex") {
+    const preference = providerDefaults.codex
+    return {
+      provider: "codex",
+      model: preference.model,
+      modelOptions: { ...preference.modelOptions },
+      planMode: preference.planMode,
+    }
+  } else if (provider === "antigravity") {
+    const preference = providerDefaults.antigravity
+    return {
+      provider: "antigravity",
+      model: preference.model,
+      modelOptions: { ...preference.modelOptions },
+      planMode: preference.planMode,
+    }
+  } else {
+    const preference = providerDefaults.pi
+    return {
+      provider: "pi",
+      model: preference.model,
+      modelOptions: { ...preference.modelOptions },
+      planMode: preference.planMode,
+    }
   }
 }
 
 function cloneComposerState(state: ComposerState): ComposerState {
-  return state.provider === "claude"
-    ? {
+  if (state.provider === "claude") {
+    return {
       provider: "claude",
       model: state.model,
       modelOptions: { ...state.modelOptions },
       planMode: state.planMode,
     }
-    : {
+  } else if (state.provider === "codex") {
+    return {
       provider: "codex",
       model: state.model,
       modelOptions: { ...state.modelOptions },
       planMode: state.planMode,
     }
+  } else if (state.provider === "antigravity") {
+    return {
+      provider: "antigravity",
+      model: state.model,
+      modelOptions: { ...state.modelOptions },
+      planMode: state.planMode,
+    }
+  } else {
+    return {
+      provider: "pi",
+      model: state.model,
+      modelOptions: { ...state.modelOptions },
+      planMode: state.planMode,
+    }
+  }
 }
 
 function sameComposerState(left: ComposerState | undefined, right: ComposerState): boolean {
@@ -272,6 +425,14 @@ function sameComposerState(left: ComposerState | undefined, right: ComposerState
   if (left.provider === "codex" && right.provider === "codex") {
     return left.modelOptions.reasoningEffort === right.modelOptions.reasoningEffort
       && left.modelOptions.fastMode === right.modelOptions.fastMode
+  }
+
+  if (left.provider === "antigravity" && right.provider === "antigravity") {
+    return left.modelOptions.reasoningEffort === right.modelOptions.reasoningEffort
+  }
+
+  if (left.provider === "pi" && right.provider === "pi") {
+    return left.modelOptions.reasoningEffort === right.modelOptions.reasoningEffort
   }
 
   return false
@@ -297,6 +458,26 @@ function normalizeComposerState(
     const preference = normalizeCodexPreference(value)
     return {
       provider: "codex",
+      model: preference.model,
+      modelOptions: preference.modelOptions,
+      planMode: preference.planMode,
+    }
+  }
+
+  if (value?.provider === "antigravity") {
+    const preference = normalizeAntigravityPreference(value as any)
+    return {
+      provider: "antigravity",
+      model: preference.model,
+      modelOptions: preference.modelOptions,
+      planMode: preference.planMode,
+    }
+  }
+
+  if (value?.provider === "pi") {
+    const preference = normalizePiPreference(value as any)
+    return {
+      provider: "pi",
       model: preference.model,
       modelOptions: preference.modelOptions,
       planMode: preference.planMode,
@@ -497,10 +678,20 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
                 ...state.providerDefaults.claude,
                 model,
               })
-              : normalizeCodexPreference({
-                ...state.providerDefaults.codex,
-                model,
-              }),
+              : provider === "codex"
+                ? normalizeCodexPreference({
+                  ...state.providerDefaults.codex,
+                  model,
+                })
+                : provider === "antigravity"
+                  ? normalizeAntigravityPreference({
+                    ...state.providerDefaults.antigravity,
+                    model,
+                  })
+                  : normalizePiPreference({
+                    ...state.providerDefaults.pi,
+                    model,
+                  }),
           },
         })),
       setProviderDefaultModelOptions: (provider, modelOptions) =>
@@ -515,13 +706,29 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
                   ...modelOptions as Partial<ClaudeModelOptions>,
                 },
               })
-              : normalizeCodexPreference({
-                ...state.providerDefaults.codex,
-                modelOptions: {
-                  ...state.providerDefaults.codex.modelOptions,
-                  ...modelOptions as Partial<CodexModelOptions>,
-                },
-              }),
+              : provider === "codex"
+                ? normalizeCodexPreference({
+                  ...state.providerDefaults.codex,
+                  modelOptions: {
+                    ...state.providerDefaults.codex.modelOptions,
+                    ...modelOptions as Partial<CodexModelOptions>,
+                  },
+                })
+                : provider === "antigravity"
+                  ? normalizeAntigravityPreference({
+                    ...state.providerDefaults.antigravity,
+                    modelOptions: {
+                      ...state.providerDefaults.antigravity.modelOptions,
+                      ...modelOptions as Partial<AntigravityModelOptions>,
+                    },
+                  })
+                  : normalizePiPreference({
+                    ...state.providerDefaults.pi,
+                    modelOptions: {
+                      ...state.providerDefaults.pi.modelOptions,
+                      ...modelOptions as Partial<PiModelOptions>,
+                    },
+                  }),
           },
         })),
       setProviderDefaultPlanMode: (provider, planMode) =>
@@ -568,7 +775,26 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
                 modelOptions: normalizeClaudePreference(composerState).modelOptions,
                 planMode: composerState.planMode,
               }
-              : cloneComposerState(composerState),
+              : composerState.provider === "codex"
+                ? {
+                  provider: "codex",
+                  model: normalizeCodexPreference(composerState).model,
+                  modelOptions: normalizeCodexPreference(composerState).modelOptions,
+                  planMode: composerState.planMode,
+                }
+                : composerState.provider === "antigravity"
+                  ? {
+                    provider: "antigravity",
+                    model: normalizeAntigravityPreference(composerState as any).model,
+                    modelOptions: normalizeAntigravityPreference(composerState as any).modelOptions,
+                    planMode: composerState.planMode,
+                  }
+                  : {
+                    provider: "pi",
+                    model: normalizePiPreference(composerState as any).model,
+                    modelOptions: normalizePiPreference(composerState as any).modelOptions,
+                    planMode: composerState.planMode,
+                  },
           },
         })),
       setChatComposerProvider: (chatId, provider) =>
@@ -588,15 +814,35 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
               }).modelOptions,
               planMode: composerState.planMode,
             }
-            : {
-              provider: "codex",
-              model,
-              modelOptions: normalizeCodexPreference({
-                ...composerState,
+            : composerState.provider === "codex"
+              ? {
+                provider: "codex",
                 model,
-              }).modelOptions,
-              planMode: composerState.planMode,
-            }
+                modelOptions: normalizeCodexPreference({
+                  ...composerState,
+                  model,
+                }).modelOptions,
+                planMode: composerState.planMode,
+              }
+              : composerState.provider === "antigravity"
+                ? {
+                  provider: "antigravity",
+                  model,
+                  modelOptions: normalizeAntigravityPreference({
+                    ...composerState,
+                    model,
+                  } as any).modelOptions,
+                  planMode: composerState.planMode,
+                }
+                : {
+                  provider: "pi",
+                  model,
+                  modelOptions: normalizePiPreference({
+                    ...composerState,
+                    model,
+                  } as any).modelOptions,
+                  planMode: composerState.planMode,
+                }
         ))),
       setChatComposerModelOptions: (chatId, modelOptions) =>
         set((state) => withChatComposerState(state, chatId, (composerState) => (
@@ -613,18 +859,44 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
               }).modelOptions,
               planMode: composerState.planMode,
             }
-            : {
-              provider: "codex",
-              model: composerState.model,
-              modelOptions: normalizeCodexPreference({
-                ...composerState,
-                modelOptions: {
-                  ...composerState.modelOptions,
-                  ...modelOptions as Partial<CodexModelOptions>,
-                },
-              }).modelOptions,
-              planMode: composerState.planMode,
-            }
+            : composerState.provider === "codex"
+              ? {
+                provider: "codex",
+                model: composerState.model,
+                modelOptions: normalizeCodexPreference({
+                  ...composerState,
+                  modelOptions: {
+                    ...composerState.modelOptions,
+                    ...modelOptions as Partial<CodexModelOptions>,
+                  },
+                }).modelOptions,
+                planMode: composerState.planMode,
+              }
+              : composerState.provider === "antigravity"
+                ? {
+                  provider: "antigravity",
+                  model: composerState.model,
+                  modelOptions: normalizeAntigravityPreference({
+                    ...composerState,
+                    modelOptions: {
+                      ...composerState.modelOptions,
+                      ...modelOptions as Partial<AntigravityModelOptions>,
+                    },
+                  } as any).modelOptions,
+                  planMode: composerState.planMode,
+                }
+                : {
+                  provider: "pi",
+                  model: composerState.model,
+                  modelOptions: normalizePiPreference({
+                    ...composerState,
+                    modelOptions: {
+                      ...composerState.modelOptions,
+                      ...modelOptions as Partial<PiModelOptions>,
+                    },
+                  } as any).modelOptions,
+                  planMode: composerState.planMode,
+                }
         ))),
       setChatComposerPlanMode: (chatId, planMode) =>
         set((state) => withChatComposerState(state, chatId, (composerState) => ({

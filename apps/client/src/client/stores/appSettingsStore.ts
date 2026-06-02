@@ -43,6 +43,22 @@ export function mergeAppSettingsPatch(
           ...patch.providerDefaults?.codex?.modelOptions,
         },
       },
+      antigravity: {
+        ...settings.providerDefaults.antigravity,
+        ...patch.providerDefaults?.antigravity,
+        modelOptions: {
+          ...settings.providerDefaults.antigravity.modelOptions,
+          ...patch.providerDefaults?.antigravity?.modelOptions,
+        },
+      },
+      pi: {
+        ...settings.providerDefaults.pi,
+        ...patch.providerDefaults?.pi,
+        modelOptions: {
+          ...settings.providerDefaults.pi.modelOptions,
+          ...patch.providerDefaults?.pi?.modelOptions,
+        },
+      },
     },
   }
 }

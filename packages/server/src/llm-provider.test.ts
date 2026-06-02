@@ -32,6 +32,11 @@ describe("resolveLlmProviderBaseUrl", () => {
     expect(resolveLlmProviderBaseUrl("openrouter", "")).toBe(OPENROUTER_BASE_URL)
     expect(resolveLlmProviderBaseUrl("custom", " https://example.com/v1 ")).toBe("https://example.com/v1")
   })
+
+  test("normalizes custom endpoint URLs to the OpenAI-compatible base URL", () => {
+    expect(resolveLlmProviderBaseUrl("custom", "http://localhost:11435/v1/chat/completions")).toBe("http://localhost:11435/v1")
+    expect(resolveLlmProviderBaseUrl("custom", "http://localhost:11435/v1/responses")).toBe("http://localhost:11435/v1")
+  })
 })
 
 describe("normalizeLlmProviderSnapshot", () => {
@@ -51,6 +56,15 @@ describe("normalizeLlmProviderSnapshot", () => {
       warning: null,
       filePathDisplay: TEST_FILE_PATH,
     })
+  })
+
+  test("stores normalized custom base URLs when a full endpoint was pasted", () => {
+    expect(normalizeLlmProviderSnapshot({
+      provider: "custom",
+      apiKey: "test-key",
+      model: "antigravity-gemini-3-flash",
+      baseUrl: "http://localhost:11435/v1/chat/completions",
+    }, TEST_FILE_PATH).baseUrl).toBe("http://localhost:11435/v1")
   })
 
   test("disables invalid configs with a warning", () => {
