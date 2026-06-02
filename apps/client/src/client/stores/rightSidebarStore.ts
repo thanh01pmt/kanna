@@ -2,7 +2,7 @@ import { create } from "zustand"
 import { persist } from "zustand/middleware"
 
 export interface ProjectRightSidebarVisibilityState {
-  rightPanel: "hidden" | "launcher" | "git" | "browser" | "files" | "workflow"
+  rightPanel: "hidden" | "launcher" | "git" | "browser" | "files" | "workflow" | "diagnostics"
   openTabs?: string[]
   activeTab?: string | null
 }

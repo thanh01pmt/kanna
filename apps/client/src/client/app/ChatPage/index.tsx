@@ -4,10 +4,11 @@ import { WorkflowTrackerPanel } from "@kanna/workflow-tracker"
 import type { WorkflowArtifactRef, WorkflowDefinitionSummary, WorkflowRunProjection, WorkflowNode } from "@kanna/shared/types"
 import type { GroupImperativeHandle } from "react-resizable-panels"
 import { useOutletContext } from "react-router-dom"
-import { ArrowLeft, FolderOpen, GitPullRequest, Globe, Layers3, PanelRight, Terminal, UserRoundPlus, X, Plus, HelpCircle, FileText, MessageSquare } from "lucide-react"
+import { ArrowLeft, Activity, FolderOpen, GitPullRequest, Globe, Layers3, PanelRight, Terminal, UserRoundPlus, X, Plus, HelpCircle, FileText, MessageSquare } from "lucide-react"
 import type { ChatInputHandle } from "../../components/chat-ui/ChatInput"
 import { ChatNavbar } from "../../components/chat-ui/ChatNavbar"
 import { BrowserPanel } from "../../components/chat-ui/BrowserPanel"
+import { ChatDiagnosticsPanel } from "../../components/chat-ui/ChatDiagnosticsPanel"
 import { MarkdownSlideViewer } from "../../components/chat-ui/MarkdownSlideViewer"
 import { GitPanel } from "../../components/chat-ui/GitPanel"
 import { useAppDialog } from "../../components/ui/app-dialog"
@@ -384,7 +385,7 @@ const MobileSidebarPane = memo(function MobileSidebarPane({
   )
 })
 
-type RightPanelId = "hidden" | "launcher" | "git" | "browser" | "files" | "workflow"
+type RightPanelId = "hidden" | "launcher" | "git" | "browser" | "files" | "workflow" | "diagnostics"
 
 interface RightSidebarShellProps {
   projectId: string
@@ -406,6 +407,7 @@ interface RightSidebarShellProps {
   onToggleBrowserPanel: () => void
   onToggleFilesPanel: () => void
   onToggleWorkflowPanel: () => void
+  onToggleDiagnosticsPanel: () => void
   onToggleEmbeddedTerminal: () => void
   onShareChat?: () => void
 }
@@ -430,6 +432,7 @@ const RightSidebarShell = memo(function RightSidebarShell({
   onToggleBrowserPanel,
   onToggleFilesPanel,
   onToggleWorkflowPanel,
+  onToggleDiagnosticsPanel,
   onToggleEmbeddedTerminal,
   onShareChat,
 }: RightSidebarShellProps) {
@@ -455,6 +458,7 @@ const RightSidebarShell = memo(function RightSidebarShell({
     { id: "git", label: "Review", icon: GitPullRequest, shortcut: "⌥⇧G" },
     { id: "terminal", label: "Terminal", icon: Terminal, shortcut: "⌥`" },
     { id: "workflow", label: "Workflow", icon: Layers3, shortcut: "" },
+    { id: "diagnostics", label: "Diagnostics", icon: Activity, shortcut: "" },
   ]
 
   function getTabInfo(tabId: string) {
@@ -467,6 +471,8 @@ const RightSidebarShell = memo(function RightSidebarShell({
           return { label: "Browser", icon: Globe, meta: null }
         case "workflow":
           return { label: "Workflow", icon: Layers3, meta: null }
+        case "diagnostics":
+          return { label: "Diagnostics", icon: Activity, meta: null }
         case "git":
           return {
             label: "Review",
@@ -506,6 +512,7 @@ const RightSidebarShell = memo(function RightSidebarShell({
     },
     { id: "browser", label: "Browser", description: "Open a website", icon: Globe, onClick: onToggleBrowserPanel, shortcut: null, meta: null },
     { id: "workflow", label: "Workflow", description: "Track workflow progress", icon: Layers3, onClick: onToggleWorkflowPanel, shortcut: null, meta: null },
+    { id: "diagnostics", label: "Diagnostics", description: "Inspect tokens and trajectory", icon: Activity, onClick: onToggleDiagnosticsPanel, shortcut: null, meta: null },
     { id: "files", label: "Files", description: "Browse project files", icon: FolderOpen, onClick: onToggleFilesPanel, shortcut: "⌥P", meta: null },
     { id: "terminal", label: "Terminal", description: embeddedTerminalVisible ? "Hide interactive shell" : "Start interactive shell", icon: Terminal, onClick: onToggleEmbeddedTerminal, shortcut: null, meta: null },
     {
@@ -1357,6 +1364,11 @@ export function ChatPage() {
     toggleRightPanel(projectId, "workflow")
   }, [projectId, toggleRightPanel])
 
+  const handleToggleDiagnosticsPanel = useCallback(() => {
+    if (!projectId) return
+    toggleRightPanel(projectId, "diagnostics")
+  }, [projectId, toggleRightPanel])
+
   const handleRunQuickAction = useCallback((command: string) => {
     if (!projectId) return
     const terminalId = addTerminal(projectId)
@@ -1765,6 +1777,8 @@ export function ChatPage() {
   ])
   const rightPanelBodyContent = activeRightPanel === "browser" && projectId
     ? <BrowserPanel projectId={projectId} socket={state.socket} onClose={handleCloseRightSidebar} onRunQuickAction={handleRunQuickAction} />
+    : activeRightPanel === "diagnostics"
+      ? <ChatDiagnosticsPanel messages={state.chatSnapshot?.messages ?? []} onClose={handleCloseRightSidebar} />
     : activeRightPanel === "files" && projectId
       ? (
         <MarkdownSlideViewer
@@ -1855,6 +1869,7 @@ export function ChatPage() {
       onToggleBrowserPanel={handleToggleBrowserPanel}
       onToggleFilesPanel={handleToggleFilesPanel}
       onToggleWorkflowPanel={handleToggleWorkflowPanel}
+      onToggleDiagnosticsPanel={handleToggleDiagnosticsPanel}
       onToggleEmbeddedTerminal={handleToggleEmbeddedTerminal}
       onShareChat={state.activeChatId ? () => void state.handleShareChat(state.activeChatId) : undefined}
     />

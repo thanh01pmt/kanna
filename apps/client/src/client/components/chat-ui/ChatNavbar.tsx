@@ -98,7 +98,7 @@ interface Props {
   localPath?: string
   embeddedTerminalVisible?: boolean
   onToggleEmbeddedTerminal?: () => void
-  rightPanel?: "hidden" | "launcher" | "git" | "browser" | "files" | "workflow"
+  rightPanel?: "hidden" | "launcher" | "git" | "browser" | "files" | "workflow" | "diagnostics"
   onToggleGitPanel?: () => void
   onToggleBrowserPanel?: () => void
   onToggleFilesPanel?: () => void
@@ -115,6 +115,8 @@ interface Props {
   editorShortcut?: string[]
   terminalShortcut?: string[]
   rightSidebarShortcut?: string[]
+  progressPopoverOpen?: boolean
+  onToggleProgressPopover?: () => void
 }
 
 export function ChatNavbar({
