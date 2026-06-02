@@ -646,6 +646,11 @@ export interface ProjectMcpServerConfig {
 export interface ProjectMcpConfig {
   mcpServers?: Record<string, ProjectMcpServerConfig>
   tools?: Record<string, Record<string, boolean>>
+  capabilities?: {
+    skills?: boolean
+    workflow?: boolean
+    mcp?: boolean
+  }
 }
 
 export interface AccountInfo {
@@ -1277,6 +1282,8 @@ export interface WorkflowDefinitionSummary {
   staleInputs?: Array<{ path: string; currentChecksum: string; recordedChecksum: string }>
   settings?: Record<string, any>
   manifest?: any
+  sourceMarkdown?: string
+  sourceFiles?: string[]
   ownerId?: string
   isOfficialGlobal?: boolean
   shareToken?: string

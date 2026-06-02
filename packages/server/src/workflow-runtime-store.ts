@@ -610,6 +610,8 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
           isDefaultEntrypoint: registration?.isDefaultEntrypoint ?? false,
           readiness: registration?.enabled ? "ready" : undefined,
           settings: registration?.settings,
+          manifest: _manifest,
+          sourceFiles: _manifest ? workflowManifestSourceFiles(_manifest as any) : undefined,
         }
       })
   }
@@ -1646,6 +1648,22 @@ function workflowManifestArtifacts(manifest: WorkflowManifest) {
   return Array.isArray(manifest.artifacts) ? manifest.artifacts : []
 }
 
+function workflowManifestSourceFiles(manifest: Record<string, unknown>, sourceMarkdown?: string | null): string[] {
+  const fromManifest = Array.isArray(manifest.sourceFiles)
+    ? manifest.sourceFiles.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    : []
+  if (fromManifest.length > 0) return [...new Set(fromManifest)]
+
+  const sourceLines = typeof sourceMarkdown === "string"
+    ? sourceMarkdown.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+    : []
+  const pathLikeLines = sourceLines.filter((line) => {
+    if (line.includes("{") || line.includes("---") || /\s/.test(line)) return false
+    return /\.(?:md|markdown|json)$/i.test(line)
+  })
+  return pathLikeLines.length === sourceLines.length ? [...new Set(pathLikeLines)] : []
+}
+
 function artifactKindFromManifestId(id: string) {
   return id.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "artifact"
 }
@@ -2244,17 +2262,17 @@ export class SupabaseWorkflowRuntimeStore implements WorkflowRuntimeStore {
       }
     }
 
-    const versionsMap = new Map<string, { version: string; manifest_jsonb: any }>()
+    const versionsMap = new Map<string, { version: string; manifest_jsonb: any; source_markdown?: string | null }>()
     if (versionIds.size > 0) {
       const { data: versionsData, error: versionsError } = await this.client
         .from("workflow_versions")
-        .select("id, version, manifest_jsonb")
+        .select("id, version, manifest_jsonb, source_markdown")
         .in("id", [...versionIds])
 
       if (versionsError) throw new Error(versionsError.message)
       if (Array.isArray(versionsData)) {
         for (const v of versionsData) {
-          versionsMap.set(v.id, { version: v.version, manifest_jsonb: v.manifest_jsonb })
+          versionsMap.set(v.id, { version: v.version, manifest_jsonb: v.manifest_jsonb, source_markdown: v.source_markdown })
         }
       }
     }
@@ -2377,6 +2395,8 @@ export class SupabaseWorkflowRuntimeStore implements WorkflowRuntimeStore {
         staleInputs: staleInputs.length > 0 ? staleInputs : undefined,
         settings: reg ? reg.settings_jsonb : undefined,
         manifest: activeManifest,
+        sourceMarkdown: typeof activeVersionInfo?.source_markdown === "string" ? activeVersionInfo.source_markdown : undefined,
+        sourceFiles: workflowManifestSourceFiles(activeManifest, activeVersionInfo?.source_markdown),
       })
     }
 
@@ -3815,6 +3835,9 @@ export class SupabaseWorkflowRuntimeStore implements WorkflowRuntimeStore {
         ? record.name.trim()
         : definition?.name ?? definition?.slug ?? "Imported workflow",
       description: typeof record.description === "string" ? record.description : definition?.description ?? undefined,
+      sourceFiles: Array.isArray(record.sourceFiles)
+        ? record.sourceFiles.filter((sourceFile): sourceFile is string => typeof sourceFile === "string" && sourceFile.trim().length > 0)
+        : undefined,
       entrypoint: typeof record.entrypoint === "boolean" ? record.entrypoint : undefined,
       role: typeof record.role === "string" ? record.role : undefined,
       artifacts,

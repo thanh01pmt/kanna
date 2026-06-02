@@ -36,7 +36,7 @@ import {
 import { resolveClaudeApiModelId } from "@kanna/shared/types"
 import { fallbackTitleFromMessage } from "./generate-title"
 import type { ProjectRecord } from "./events"
-import { mcpToolConfigKey, readDisabledMcpToolNames } from "./mcp-tool-config"
+import { getDisabledClaudeToolNames, isProjectCapabilityEnabled, mcpToolConfigKey, readProjectMcpToolConfig } from "./mcp-tool-config"
 
 const CLAUDE_TOOLSET = [
   "Skill",
@@ -123,6 +123,7 @@ interface AgentCoordinatorArgs {
     model: string
     effort?: string
     disallowedTools?: string[]
+    disableProjectMcp?: boolean
     planMode: boolean
     sessionToken: string | null
     forkSession: boolean
@@ -645,6 +646,7 @@ async function startClaudeSession(args: {
   model: string
   effort?: string
   disallowedTools?: string[]
+  disableProjectMcp?: boolean
   planMode: boolean
   sessionToken: string | null
   forkSession: boolean
@@ -719,7 +721,7 @@ async function startClaudeSession(args: {
       canUseTool,
       tools: [...CLAUDE_TOOLSET],
       disallowedTools: args.disallowedTools,
-      settingSources: ["user", "project", "local"],
+      settingSources: args.disableProjectMcp ? ["user", "local"] : ["user", "project", "local"],
       pathToClaudeCodeExecutable: process.env.CLAUDE_EXECUTABLE?.replace(/^~(?=\/|$)/, homedir()) || undefined,
       env: (() => { const { CLAUDECODE: _, ...env } = process.env; return env })(),
     },
@@ -1062,20 +1064,22 @@ export class AgentCoordinator {
 
     let turn: HarnessTurn
     if (args.provider === "claude") {
-      const disallowedMcpTools = await readDisabledMcpToolNames(project.localPath)
+      const projectToolConfig = await readProjectMcpToolConfig(project.localPath)
+      const disallowedClaudeTools = getDisabledClaudeToolNames(projectToolConfig)
       logSendToStartingProfile(args.profile, "start_turn.provider_boot.begin", {
         chatId: args.chatId,
         provider: args.provider,
         model: args.model,
-        disabledMcpToolCount: disallowedMcpTools.length,
+        disabledToolCount: disallowedClaudeTools.length,
       })
       turn = await this.startClaudeTurn({
         chatId: args.chatId,
         localPath: project.localPath,
         model: args.model,
         effort: args.effort,
-        disallowedTools: disallowedMcpTools,
-        mcpToolConfigKey: mcpToolConfigKey(disallowedMcpTools),
+        disallowedTools: disallowedClaudeTools,
+        disableProjectMcp: !isProjectCapabilityEnabled(projectToolConfig, "mcp"),
+        mcpToolConfigKey: mcpToolConfigKey(projectToolConfig),
         planMode: args.planMode,
         sessionToken: chat.pendingForkSessionToken ?? chat.sessionToken,
         forkSession: Boolean(chat.pendingForkSessionToken),
@@ -1122,13 +1126,13 @@ export class AgentCoordinator {
         provider: args.provider,
         model: args.model,
       })
-      const disallowedMcpTools = await readDisabledMcpToolNames(project.localPath)
+      const projectToolConfig = await readProjectMcpToolConfig(project.localPath)
       await this.piManager.startSession({
         chatId: args.chatId,
         cwd: project.localPath,
         model: args.model,
         effort: args.effort as any,
-        mcpToolConfigKey: mcpToolConfigKey(disallowedMcpTools),
+        mcpToolConfigKey: mcpToolConfigKey(projectToolConfig),
         sessionToken: chat.sessionToken,
       })
       logSendToStartingProfile(args.profile, "start_turn.session_ready", {
@@ -1154,13 +1158,13 @@ export class AgentCoordinator {
         provider: args.provider,
         model: args.model,
       })
-      const disallowedMcpTools = await readDisabledMcpToolNames(project.localPath)
+      const projectToolConfig = await readProjectMcpToolConfig(project.localPath)
       const sessionToken = await this.codexManager.startSession({
         chatId: args.chatId,
         cwd: project.localPath,
         model: args.model,
         serviceTier: args.serviceTier,
-        mcpToolConfigKey: mcpToolConfigKey(disallowedMcpTools),
+        mcpToolConfigKey: mcpToolConfigKey(projectToolConfig),
         sessionToken: chat.sessionToken,
         pendingForkSessionToken: chat.pendingForkSessionToken,
       })
@@ -1268,6 +1272,7 @@ export class AgentCoordinator {
     model: string
     effort?: string
     disallowedTools?: string[]
+    disableProjectMcp?: boolean
     mcpToolConfigKey?: string
     planMode: boolean
     sessionToken: string | null
@@ -1287,6 +1292,7 @@ export class AgentCoordinator {
         model: args.model,
         effort: args.effort,
         disallowedTools: args.disallowedTools,
+        disableProjectMcp: args.disableProjectMcp,
         planMode: args.planMode,
         sessionToken: args.sessionToken,
         forkSession: args.forkSession,

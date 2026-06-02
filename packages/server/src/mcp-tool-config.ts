@@ -3,16 +3,32 @@ import path from "node:path"
 
 export type ProjectMcpToolConfig = {
   tools?: Record<string, Record<string, boolean>>
+  capabilities?: {
+    skills?: boolean
+    workflow?: boolean
+    mcp?: boolean
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null
 }
 
 export async function readProjectMcpToolConfig(localPath: string): Promise<ProjectMcpToolConfig> {
   try {
     const raw = await readFile(path.join(localPath, ".mcp.json"), "utf8")
-    const parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {}
-    const tools = (parsed as ProjectMcpToolConfig).tools
-    if (!tools || typeof tools !== "object" || Array.isArray(tools)) return {}
-    return { tools }
+    const parsed = asRecord(JSON.parse(raw))
+    if (!parsed) return {}
+    const tools = asRecord(parsed.tools)
+      ? parsed.tools as ProjectMcpToolConfig["tools"]
+      : undefined
+    const capabilities = asRecord(parsed.capabilities)
+      ? parsed.capabilities as ProjectMcpToolConfig["capabilities"]
+      : undefined
+    return {
+      ...(tools ? { tools } : {}),
+      ...(capabilities ? { capabilities } : {}),
+    }
   } catch {
     return {}
   }
@@ -35,6 +51,29 @@ export async function readDisabledMcpToolNames(localPath: string): Promise<strin
   return getDisabledMcpToolNames(await readProjectMcpToolConfig(localPath))
 }
 
-export function mcpToolConfigKey(disabledToolNames: readonly string[]) {
-  return [...disabledToolNames].sort().join("\n")
+export function isProjectCapabilityEnabled(config: ProjectMcpToolConfig, capability: "skills" | "workflow" | "mcp") {
+  return config.capabilities?.[capability] !== false
+}
+
+export function getDisabledClaudeToolNames(config: ProjectMcpToolConfig): string[] {
+  const disabled = getDisabledMcpToolNames(config)
+  if (!isProjectCapabilityEnabled(config, "skills")) {
+    disabled.push("Skill")
+  }
+  return disabled.sort()
+}
+
+export function mcpToolConfigKey(config: ProjectMcpToolConfig | readonly string[]) {
+  if (Array.isArray(config)) {
+    return [...config].sort().join("\n")
+  }
+  const projectConfig = config as ProjectMcpToolConfig
+  return JSON.stringify({
+    capabilities: {
+      skills: isProjectCapabilityEnabled(projectConfig, "skills"),
+      workflow: isProjectCapabilityEnabled(projectConfig, "workflow"),
+      mcp: isProjectCapabilityEnabled(projectConfig, "mcp"),
+    },
+    disabledTools: getDisabledMcpToolNames(projectConfig),
+  })
 }

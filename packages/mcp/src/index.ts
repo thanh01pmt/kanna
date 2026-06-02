@@ -14,6 +14,8 @@ const server = new McpServer({
 const store = createDefaultWorkflowRuntimeStore()
 
 let enabledTools: Record<string, boolean> = {}
+let workflowCapabilityEnabled = true
+let mcpCapabilityEnabled = true
 try {
   const mcpConfigPath = path.join(process.cwd(), ".mcp.json")
   if (fs.existsSync(mcpConfigPath)) {
@@ -25,13 +27,17 @@ try {
         enabledTools = kannaTools
       }
     }
+    if (mcpConfig && typeof mcpConfig === "object" && mcpConfig.capabilities && typeof mcpConfig.capabilities === "object") {
+      workflowCapabilityEnabled = mcpConfig.capabilities.workflow !== false
+      mcpCapabilityEnabled = mcpConfig.capabilities.mcp !== false
+    }
   }
 } catch (error) {
   // Silent fallback
 }
 
 function isToolEnabled(toolName: string): boolean {
-  return enabledTools[toolName] !== false
+  return mcpCapabilityEnabled && workflowCapabilityEnabled && enabledTools[toolName] !== false
 }
 
 function jsonText(value: unknown) {

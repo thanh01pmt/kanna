@@ -71,6 +71,8 @@ export const WorkflowManifestSchema = z.object({
   name: z.string(),
   /** Description of the workflow's purpose */
   description: z.string().optional(),
+  /** Source workflow files used to produce or edit this manifest */
+  sourceFiles: z.array(z.string()).optional(),
   /** Whether this workflow can be used as an initial project entrypoint */
   entrypoint: z.boolean().optional(),
   /** Workflow role, e.g. initial, normal, utility, or subworkflow */

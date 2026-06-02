@@ -96,6 +96,32 @@ async function writeProjectFile(projectPath: string, relativePath: string, conte
   return { ok: true }
 }
 
+function normalizeWorkflowSourcePath(value: string): string {
+  return path.resolve(value).replaceAll("\\", "/")
+}
+
+async function resolveWorkflowSourcePath(args: {
+  workflowStore: WorkflowRuntimeStore
+  projectId?: string
+  workflowDefinitionId: string
+  sourcePath: string
+}): Promise<string> {
+  const definitions = await args.workflowStore.listDefinitions?.(args.projectId) ?? []
+  const definition = definitions.find((item) => item.id === args.workflowDefinitionId)
+  if (!definition) {
+    throw new Error("Workflow definition not found")
+  }
+
+  const allowedSourceFiles = Array.isArray(definition.sourceFiles) ? definition.sourceFiles : []
+  const requestedPath = normalizeWorkflowSourcePath(args.sourcePath)
+  const allowed = allowedSourceFiles.some((sourceFile) => normalizeWorkflowSourcePath(sourceFile) === requestedPath)
+  if (!allowed) {
+    throw new Error("Access denied: source path is not attached to this workflow definition")
+  }
+
+  return requestedPath
+}
+
 const readMarkdownFile = readProjectFile
 const writeMarkdownFile = writeProjectFile
 import type { ServerWebSocket } from "bun"
@@ -1373,6 +1399,45 @@ export function createWsRouter({
           }
           const result = await resolvedWorkflowStore.listDefinitions?.(command.projectId) ?? []
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          return
+        }
+        case "workflow.readSourceFile": {
+          if (command.projectId) {
+            const project = store.getProject(command.projectId)
+            if (!project) {
+              throw new Error("Project not found")
+            }
+          }
+          const sourcePath = await resolveWorkflowSourcePath({
+            workflowStore: resolvedWorkflowStore,
+            projectId: command.projectId,
+            workflowDefinitionId: command.workflowDefinitionId,
+            sourcePath: command.sourcePath,
+          })
+          const result = await readFile(sourcePath, "utf-8")
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          return
+        }
+        case "workflow.writeSourceFile": {
+          if (command.projectId) {
+            const project = store.getProject(command.projectId)
+            if (!project) {
+              throw new Error("Project not found")
+            }
+          }
+          const sourcePath = await resolveWorkflowSourcePath({
+            workflowStore: resolvedWorkflowStore,
+            projectId: command.projectId,
+            workflowDefinitionId: command.workflowDefinitionId,
+            sourcePath: command.sourcePath,
+          })
+          await writeFile(sourcePath, command.content, "utf-8")
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { ok: true } })
+          if (command.projectId) {
+            await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
+          } else {
+            await broadcastSnapshots()
+          }
           return
         }
         case "workflow.deleteDefinition": {

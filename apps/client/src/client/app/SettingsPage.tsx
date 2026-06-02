@@ -30,6 +30,7 @@ import {
   ArrowUpCircle,
   Upload,
   FileText,
+  FilePenLine,
   Sparkles,
   Eye,
   Package,
@@ -977,6 +978,12 @@ export function WorkflowSection({ state }: { state: KannaState }) {
   const [workflowManifestText, setWorkflowManifestText] = useState("")
   const [workflowDetailsError, setWorkflowDetailsError] = useState<string | null>(null)
   const [isSavingWorkflowDetails, setIsSavingWorkflowDetails] = useState(false)
+  const [sourceWorkflow, setSourceWorkflow] = useState<WorkflowDefinitionSummary | null>(null)
+  const [sourceFilePath, setSourceFilePath] = useState("")
+  const [sourceFileText, setSourceFileText] = useState("")
+  const [sourceFileError, setSourceFileError] = useState<string | null>(null)
+  const [isLoadingSourceFile, setIsLoadingSourceFile] = useState(false)
+  const [isSavingSourceFile, setIsSavingSourceFile] = useState(false)
 
   const projectId = state.activeProjectId
 
@@ -1140,6 +1147,94 @@ export function WorkflowSection({ state }: { state: KannaState }) {
     setWorkflowDetailsError(null)
   }
 
+  const openWorkflowSourceEditor = async (def: WorkflowDefinitionSummary) => {
+    const firstSourceFile = def.sourceFiles?.[0]
+    if (!firstSourceFile) return
+    setSourceWorkflow(def)
+    setSourceFilePath(firstSourceFile)
+    setSourceFileText("")
+    setSourceFileError(null)
+    setIsLoadingSourceFile(true)
+    try {
+      const content = await state.socket.command<string>({
+        type: "workflow.readSourceFile",
+        projectId: projectId ?? undefined,
+        workflowDefinitionId: def.id,
+        sourcePath: firstSourceFile,
+      })
+      setSourceFileText(content)
+    } catch (err: any) {
+      setSourceFileError(err.message || String(err))
+    } finally {
+      setIsLoadingSourceFile(false)
+    }
+  }
+
+  const closeWorkflowSourceEditor = (force = false) => {
+    if (isSavingSourceFile && !force) return
+    setSourceWorkflow(null)
+    setSourceFilePath("")
+    setSourceFileText("")
+    setSourceFileError(null)
+  }
+
+  const loadSelectedSourceFile = async (nextPath: string) => {
+    if (!sourceWorkflow) return
+    setSourceFilePath(nextPath)
+    setSourceFileError(null)
+    setIsLoadingSourceFile(true)
+    try {
+      const content = await state.socket.command<string>({
+        type: "workflow.readSourceFile",
+        projectId: projectId ?? undefined,
+        workflowDefinitionId: sourceWorkflow.id,
+        sourcePath: nextPath,
+      })
+      setSourceFileText(content)
+    } catch (err: any) {
+      setSourceFileError(err.message || String(err))
+    } finally {
+      setIsLoadingSourceFile(false)
+    }
+  }
+
+  const handleSaveWorkflowSourceFile = async (options?: { publishVersion?: boolean }) => {
+    if (!sourceWorkflow || !sourceFilePath) return
+    setIsSavingSourceFile(true)
+    setSourceFileError(null)
+    try {
+      await state.socket.command({
+        type: "workflow.writeSourceFile",
+        projectId: projectId ?? undefined,
+        workflowDefinitionId: sourceWorkflow.id,
+        sourcePath: sourceFilePath,
+        content: sourceFileText,
+      })
+
+      if (options?.publishVersion) {
+        const parsed = parseWorkflowImportText(sourceFileText)
+        await state.socket.command({
+          type: "workflow.publishManifest",
+          projectId: projectId ?? undefined,
+          manifest: {
+            ...parsed.manifest,
+            name: sourceWorkflow.name,
+            description: typeof parsed.manifest.description === "string" ? parsed.manifest.description : sourceWorkflow.description ?? "",
+            sourceFiles: sourceWorkflow.sourceFiles,
+          },
+          sourceMarkdown: sourceFileText,
+        })
+      }
+
+      closeWorkflowSourceEditor(true)
+      loadDefinitions()
+    } catch (err: any) {
+      setSourceFileError(err.message || String(err))
+    } finally {
+      setIsSavingSourceFile(false)
+    }
+  }
+
   const handleSaveWorkflowDetails = async () => {
     if (!selectedWorkflow) return
     setIsSavingWorkflowDetails(true)
@@ -1160,6 +1255,7 @@ export function WorkflowSection({ state }: { state: KannaState }) {
           ...parsed,
           name: selectedWorkflow.name,
           description: typeof parsed.description === "string" ? parsed.description : selectedWorkflow.description ?? "",
+          sourceFiles: selectedWorkflow.sourceFiles,
         },
         sourceMarkdown: workflowManifestText,
       })
@@ -1497,9 +1593,25 @@ export function WorkflowSection({ state }: { state: KannaState }) {
                           </button>
                           <button
                             type="button"
+                            onClick={() => openWorkflowSourceEditor(def)}
+                            disabled={def.isOfficialGlobal || !def.sourceFiles?.length}
+                            title={
+                              def.isOfficialGlobal
+                                ? "Official workflow sources cannot be edited"
+                                : def.sourceFiles?.length
+                                  ? "Edit source workflow file"
+                                  : "No source workflow file is attached"
+                            }
+                            aria-label={`Edit source file for ${def.name}`}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                          >
+                            <FilePenLine className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => openWorkflowDetails(def, "edit")}
                             disabled={def.isOfficialGlobal}
-                            title={def.isOfficialGlobal ? "Official workflows cannot be edited" : "Edit workflow manifest"}
+                            title={def.isOfficialGlobal ? "Official workflows cannot be edited" : "Edit manifest / publish new version"}
                             aria-label={`Edit ${def.name}`}
                             className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
                           >
@@ -1790,10 +1902,91 @@ export function WorkflowSection({ state }: { state: KannaState }) {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={sourceWorkflow !== null} onOpenChange={(open) => { if (!open) closeWorkflowSourceEditor() }}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Edit Source Workflow File</DialogTitle>
+          </DialogHeader>
+          <DialogBody className="space-y-4 pt-4">
+            {sourceWorkflow && (
+              <div className="rounded-lg border border-border bg-card/20 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-foreground">{sourceWorkflow.name}</span>
+                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">{sourceWorkflow.slug}</code>
+                </div>
+                {sourceWorkflow.sourceFiles && sourceWorkflow.sourceFiles.length > 1 ? (
+                  <select
+                    value={sourceFilePath}
+                    onChange={(event) => void loadSelectedSourceFile(event.target.value)}
+                    disabled={isLoadingSourceFile || isSavingSourceFile}
+                    className="mt-3 w-full rounded-md border border-border bg-background px-2 py-1.5 font-mono text-xs text-foreground outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                  >
+                    {sourceWorkflow.sourceFiles.map((sourceFile) => (
+                      <option key={sourceFile} value={sourceFile}>{sourceFile}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="mt-2 truncate font-mono text-xs text-muted-foreground">{sourceFilePath}</p>
+                )}
+              </div>
+            )}
+
+            {sourceFileError && (
+              <div className="flex items-start gap-2.5 rounded-lg border border-red-500/20 bg-red-500/5 p-3 text-xs text-red-600 dark:text-red-400">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{sourceFileError}</span>
+              </div>
+            )}
+
+            {isLoadingSourceFile ? (
+              <div className="flex h-[48vh] items-center justify-center rounded-lg border border-border bg-muted/20 text-sm text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Loading source file...
+              </div>
+            ) : (
+              <textarea
+                value={sourceFileText}
+                onChange={(e) => setSourceFileText(e.target.value)}
+                spellCheck={false}
+                className="h-[48vh] w-full resize-none rounded-lg border border-border bg-background p-3 font-mono text-xs text-foreground outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary"
+              />
+            )}
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => closeWorkflowSourceEditor()} disabled={isSavingSourceFile}>
+              Cancel
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleSaveWorkflowSourceFile()}
+              disabled={isSavingSourceFile || isLoadingSourceFile || !sourceFilePath}
+            >
+              {isSavingSourceFile ? (
+                <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />Saving...</>
+              ) : (
+                <><FileText className="mr-2 h-3.5 w-3.5" />Save File</>
+              )}
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => handleSaveWorkflowSourceFile({ publishVersion: true })}
+              disabled={isSavingSourceFile || isLoadingSourceFile || !sourceFilePath}
+            >
+              {isSavingSourceFile ? (
+                <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />Publishing...</>
+              ) : (
+                <><CheckCircle2 className="mr-2 h-3.5 w-3.5" />Save File & Publish Version</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={workflowDetailsMode !== null} onOpenChange={(open) => { if (!open) closeWorkflowDetails() }}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>{workflowDetailsMode === "edit" ? "Edit Workflow" : "View Workflow"}</DialogTitle>
+            <DialogTitle>{workflowDetailsMode === "edit" ? "Edit Manifest / Publish New Version" : "View Workflow Manifest"}</DialogTitle>
           </DialogHeader>
           <DialogBody className="space-y-4 pt-4">
             {selectedWorkflow && (
@@ -1860,6 +2053,7 @@ function parseMcpConfig(content: string): McpConfig {
     ...parsed,
     mcpServers: parsed.mcpServers ?? {},
     tools: parsed.tools ?? {},
+    capabilities: parsed.capabilities ?? {},
   }
 }
 
@@ -1903,6 +2097,24 @@ const KANNA_MCP_TOOLS = [
   {
     name: "workflow_update_artifact_impact",
     description: "Record review or repair status for downstream artifact impacts.",
+  },
+] as const
+
+const PROJECT_CAPABILITIES = [
+  {
+    id: "skills",
+    label: "Skills",
+    description: "Expose installed skills and the Skill tool to supported agents.",
+  },
+  {
+    id: "workflow",
+    label: "Workflow",
+    description: "Expose Kanna workflow tools, registry actions, artifact tracking, and workflow runtime operations.",
+  },
+  {
+    id: "mcp",
+    label: "MCP",
+    description: "Allow project-level MCP servers and tools to be exposed to supported agents.",
   },
 ] as const
 
@@ -1962,6 +2174,7 @@ export function McpSection({
         content: `${JSON.stringify({
           mcpServers: nextConfig.mcpServers ?? {},
           tools: nextConfig.tools ?? {},
+          capabilities: nextConfig.capabilities ?? {},
         }, null, 2)}\n`,
       })
       setConfig(nextConfig)
@@ -2036,6 +2249,19 @@ export function McpSection({
       tools: {
         ...currentTools,
         [serverName]: nextServerTools,
+      },
+    }
+    setConfig(nextConfig)
+    await saveConfig(nextConfig)
+  }
+
+  const handleToggleCapability = async (capability: typeof PROJECT_CAPABILITIES[number]["id"]) => {
+    const currentCapabilities = config.capabilities ?? {}
+    const nextConfig = {
+      ...config,
+      capabilities: {
+        ...currentCapabilities,
+        [capability]: currentCapabilities[capability] === false,
       },
     }
     setConfig(nextConfig)
@@ -2126,6 +2352,46 @@ export function McpSection({
       </SettingsRow>
 
       <SettingsRow
+        title="Capabilities"
+        description="Project-scoped agent surfaces. Disabled surfaces are hidden from supported agents on their next session."
+        alignStart
+      >
+        <div className="flex w-full max-w-[720px] flex-col rounded-lg border border-border bg-card/20">
+          {PROJECT_CAPABILITIES.map((capability) => {
+            const isEnabled = config.capabilities?.[capability.id] !== false
+            return (
+              <div key={capability.id} className={cn(
+                "flex items-center justify-between gap-4 border-b border-border px-3 py-3 last:border-b-0",
+                !isEnabled && "bg-muted/20"
+              )}>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-foreground">{capability.label}</span>
+                    <StatusPill tone={isEnabled ? "good" : "neutral"}>{isEnabled ? "Enabled" : "Disabled"}</StatusPill>
+                  </div>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{capability.description}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleToggleCapability(capability.id)}
+                  disabled={savingServerName !== null}
+                  title={isEnabled ? `Disable ${capability.label}` : `Enable ${capability.label}`}
+                  aria-label={`${isEnabled ? "Disable" : "Enable"} ${capability.label}`}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                >
+                  {isEnabled ? (
+                    <ToggleRight className="h-6 w-6 text-emerald-500" />
+                  ) : (
+                    <ToggleLeft className="h-6 w-6 text-muted-foreground/60" />
+                  )}
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      </SettingsRow>
+
+      <SettingsRow
         title="Tools"
         description="Tools are grouped by the MCP server that exposes them."
         alignStart
@@ -2134,8 +2400,13 @@ export function McpSection({
           {servers.length > 0 ? (
             servers.map(([name, server]) => {
               const isKannaWorkflow = name === "kanna-workflow"
+              const isMcpCapabilityEnabled = config.capabilities?.mcp !== false
+              const isWorkflowCapabilityEnabled = config.capabilities?.workflow !== false
+              const isServerEffectivelyEnabled = isMcpCapabilityEnabled && (!isKannaWorkflow || isWorkflowCapabilityEnabled)
               const toolNames = isKannaWorkflow ? KANNA_MCP_TOOLS.map((tool) => tool.name) : []
-              const enabledCount = toolNames.filter((toolName) => config.tools?.[name]?.[toolName] !== false).length
+              const enabledCount = isServerEffectivelyEnabled
+                ? toolNames.filter((toolName) => config.tools?.[name]?.[toolName] !== false).length
+                : 0
               const disabledCount = toolNames.length - enabledCount
               return (
                 <div key={name} className="rounded-lg border border-border bg-card/20">
@@ -2146,6 +2417,7 @@ export function McpSection({
                         <StatusPill tone={isKannaWorkflow ? "good" : "neutral"}>
                           {isKannaWorkflow ? `${enabledCount}/${toolNames.length} enabled` : "External"}
                         </StatusPill>
+                        {!isServerEffectivelyEnabled ? <StatusPill tone="neutral">Capability off</StatusPill> : null}
                         {disabledCount > 0 ? <StatusPill tone="neutral">{disabledCount} disabled</StatusPill> : null}
                       </div>
                       <div className="mt-1 truncate font-mono text-xs text-muted-foreground">
@@ -2160,7 +2432,7 @@ export function McpSection({
                           variant="outline"
                           className="h-8 px-2 text-xs"
                           onClick={() => void handleSetServerTools(name, toolNames, false)}
-                          disabled={savingServerName !== null || disabledCount === toolNames.length}
+                          disabled={savingServerName !== null || disabledCount === toolNames.length || !isServerEffectivelyEnabled}
                         >
                           Disable all
                         </Button>
@@ -2170,7 +2442,7 @@ export function McpSection({
                           variant="outline"
                           className="h-8 px-2 text-xs"
                           onClick={() => void handleSetServerTools(name, toolNames, true)}
-                          disabled={savingServerName !== null || enabledCount === toolNames.length}
+                          disabled={savingServerName !== null || enabledCount === toolNames.length || !isServerEffectivelyEnabled}
                         >
                           Enable all
                         </Button>
@@ -2181,7 +2453,7 @@ export function McpSection({
                   {isKannaWorkflow ? (
                     <div className="divide-y divide-border">
                       {KANNA_MCP_TOOLS.map((tool) => {
-                        const isEnabled = config.tools?.[name]?.[tool.name] !== false
+                        const isEnabled = isServerEffectivelyEnabled && config.tools?.[name]?.[tool.name] !== false
                         return (
                           <div key={tool.name} className={cn(
                             "flex items-center justify-between gap-4 px-3 py-2.5 transition-colors",
@@ -2198,7 +2470,7 @@ export function McpSection({
                             <button
                               type="button"
                               onClick={() => void handleToggleTool(name, tool.name)}
-                              disabled={savingServerName !== null}
+                              disabled={savingServerName !== null || !isServerEffectivelyEnabled}
                               className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
                               title={isEnabled ? "Disable tool" : "Enable tool"}
                               aria-label={`${isEnabled ? "Disable" : "Enable"} ${tool.name}`}
