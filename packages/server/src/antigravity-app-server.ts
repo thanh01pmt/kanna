@@ -59,6 +59,7 @@ interface ActiveSession {
   stderrLines: string[]
   rawLines: string[]
   rawText: string
+  rawTextEmitted: boolean
   hardTimeoutTimer: NodeJS.Timeout | null
   closed: boolean
 }
@@ -150,6 +151,21 @@ function parseJsonLine(line: string): Record<string, unknown> | null {
 
 function stripAnsi(value: string) {
   return value.replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "")
+}
+
+function isSdkTransport() {
+  return process.env.KANNA_ANTIGRAVITY_TRANSPORT === "sdk"
+}
+
+function shouldStreamCliRawText() {
+  return process.env.KANNA_ANTIGRAVITY_STREAM_RAW !== "0"
+}
+
+function normalizeCliText(value: string) {
+  return stripAnsi(value)
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .trim()
 }
 
 function detectPermissionRequest(
@@ -260,6 +276,7 @@ export class AntigravityAppServerManager {
       stderrLines: [],
       rawLines: [],
       rawText: "",
+      rawTextEmitted: false,
       hardTimeoutTimer: null,
       closed: false,
     }
@@ -280,8 +297,12 @@ export class AntigravityAppServerManager {
 
     const pendingTurn: PendingAgyTurn = { queue, resolved: false, permissionInFlight: false, onToolRequest: args.onToolRequest }
     session.pendingTurn = pendingTurn
+    session.stderrLines = []
+    session.rawLines = []
+    session.rawText = ""
+    session.rawTextEmitted = false
 
-    const cliArgs = process.env.KANNA_ANTIGRAVITY_TRANSPORT === "sdk"
+    const cliArgs = isSdkTransport()
       ? [
           "--model", args.model,
           "--prompt", args.content,
@@ -291,23 +312,23 @@ export class AntigravityAppServerManager {
           "--print-timeout", process.env.KANNA_ANTIGRAVITY_PRINT_TIMEOUT ?? "5m",
         ]
     if (
-      process.env.KANNA_ANTIGRAVITY_TRANSPORT !== "sdk"
+      !isSdkTransport()
       && process.env.KANNA_ANTIGRAVITY_SKIP_PERMISSIONS === "1"
     ) {
       cliArgs.push("--dangerously-skip-permissions")
     }
-    if (process.env.KANNA_ANTIGRAVITY_TRANSPORT === "sdk" && args.effort) {
+    if (isSdkTransport() && args.effort) {
       cliArgs.push("--effort", args.effort)
     }
-    if (session.sessionToken && process.env.KANNA_ANTIGRAVITY_TRANSPORT !== "sdk") {
+    if (session.sessionToken && !isSdkTransport()) {
       cliArgs.push("--conversation", session.sessionToken)
     }
-    if (process.env.KANNA_ANTIGRAVITY_TRANSPORT !== "sdk") {
+    if (!isSdkTransport()) {
       cliArgs.push(args.content)
     }
 
     session.child = this.spawnProcess(session.cwd, cliArgs)
-    if (process.env.KANNA_ANTIGRAVITY_TRANSPORT !== "sdk") {
+    if (!isSdkTransport()) {
       // CLI mode hangs on an open stdin because it tries to read piped context.
       // We must close it immediately. Note: This breaks interactive permissions,
       // so --dangerously-skip-permissions MUST be passed.
@@ -393,7 +414,7 @@ export class AntigravityAppServerManager {
       queueMicrotask(() => {
         if (session.closed) return
         const trailing = stdoutBuffer.trim()
-        if (trailing) {
+        if (trailing && isSdkTransport()) {
           const record = parseJsonLine(trailing)
           if (record) {
             this.handleLine(session, record)
@@ -507,6 +528,11 @@ export class AntigravityAppServerManager {
   }
 
   private handleRawChunkBuffer(session: ActiveSession, buffer: string, source: "stdout" | "stderr") {
+    if (!isSdkTransport() && source === "stdout") {
+      void this.handleRawOutput(session, buffer, source)
+      return ""
+    }
+
     // Attempt to parse as JSON lines first (for SDK bridge)
     const parts = buffer.split(/\r?\n|\r/g)
     const trailing = parts.pop() ?? ""
@@ -522,9 +548,10 @@ export class AntigravityAppServerManager {
       }
     }
     
-    // If we've never seen JSON and this is CLI stdout (which drips text without newlines),
-    // we should flush the trailing text immediately to the UI instead of buffering it.
-    if (!hasJson && source === "stdout" && trailing) {
+    // Optional legacy escape hatch for debugging raw CLI streaming. The default
+    // CLI path buffers until close so Markdown and word spacing are not broken
+    // by Antigravity's TTY-style text drip chunks.
+    if (!hasJson && source === "stdout" && trailing && shouldStreamCliRawText()) {
       this.handleRawOutput(session, trailing, source)
       return "" // Clear trailing since we just flushed it
     }
@@ -536,21 +563,27 @@ export class AntigravityAppServerManager {
     const pendingTurn = session.pendingTurn
     if (!pendingTurn || pendingTurn.resolved || pendingTurn.permissionInFlight) return
 
-
-    const trimmed = line.trim()
+    const text = stripAnsi(line)
+    const trimmed = text.trim()
     if (!trimmed) return
-    session.rawLines.push(trimmed)
+    const diagnosticLines = text
+      .split(/\r?\n|\r/g)
+      .map((candidate) => candidate.trim())
+      .filter(Boolean)
+    session.rawLines.push(...(diagnosticLines.length > 0 ? diagnosticLines : [trimmed]))
     session.rawLines = session.rawLines.slice(-24)
     if (source === "stdout") {
-      const text = stripAnsi(trimmed)
-      session.rawText = session.rawText ? `${session.rawText}\n${text}` : text
-      pendingTurn.queue.push({
-        type: "transcript",
-        entry: timestamped({
-          kind: "assistant_text",
-          text: `${text}\n`,
-        }),
-      })
+      session.rawText += text
+      if (shouldStreamCliRawText()) {
+        session.rawTextEmitted = true
+        pendingTurn.queue.push({
+          type: "transcript",
+          entry: timestamped({
+            kind: "assistant_text",
+            text,
+          }),
+        })
+      }
     }
 
     const permission = detectPermissionRequest("antigravity", session.rawLines)
@@ -585,7 +618,7 @@ export class AntigravityAppServerManager {
 
   private scheduleHardTimeout(session: ActiveSession) {
     this.clearHardTimeoutTimer(session)
-    const timeoutMs = process.env.KANNA_ANTIGRAVITY_TRANSPORT === "sdk"
+    const timeoutMs = isSdkTransport()
       ? 5 * 60_000
       : parseDurationMs(process.env.KANNA_ANTIGRAVITY_PRINT_TIMEOUT ?? "5m", 5 * 60_000) + 15_000
     session.hardTimeoutTimer = setTimeout(() => {
@@ -610,7 +643,16 @@ export class AntigravityAppServerManager {
     this.clearHardTimeoutTimer(session)
     const pendingTurn = session.pendingTurn
     if (pendingTurn && !pendingTurn.resolved) {
-      const text = session.rawText.trim() || session.rawLines.join("\n").trim()
+      const text = normalizeCliText(session.rawText) || session.rawLines.join("\n").trim()
+      if (text && !session.rawTextEmitted) {
+        pendingTurn.queue.push({
+          type: "transcript",
+          entry: timestamped({
+            kind: "assistant_text",
+            text,
+          }),
+        })
+      }
       pendingTurn.queue.push({
         type: "transcript",
         entry: timestamped({

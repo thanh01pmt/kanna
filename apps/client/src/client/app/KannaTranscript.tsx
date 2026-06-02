@@ -177,6 +177,34 @@ export function buildTranscriptRenderItems(
       continue
     }
 
+    if (renderState?.shouldRender && message.kind === "assistant_text") {
+      const startIndex = index
+      const textMessages: HydratedTranscriptMessage[] = [message]
+      index += 1
+
+      while (index < messages.length) {
+        const nextMessage = messages[index]
+        const nextRenderState = renderStates[index]
+        if (!nextRenderState?.shouldRender || nextMessage.kind !== "assistant_text") break
+        textMessages.push(nextMessage)
+        index += 1
+      }
+
+      if (textMessages.length > 1) {
+        result.push({
+          type: "single",
+          message: {
+            ...message,
+            text: textMessages.map((textMessage) => textMessage.kind === "assistant_text" ? textMessage.text : "").join(""),
+          },
+          index: startIndex,
+        })
+      } else {
+        result.push({ type: "single", message, index: startIndex })
+      }
+      continue
+    }
+
     result.push({ type: "single", message, index })
     index += 1
   }
