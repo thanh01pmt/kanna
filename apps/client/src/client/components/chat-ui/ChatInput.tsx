@@ -240,9 +240,9 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const previousProjectIdRef = useRef<string | null>(projectId ?? null)
   const latestChatIdRef = useRef<string | null>(chatId ?? null)
 
-  const providerLocked = activeProvider !== null
-  const providerPrefs = getEffectiveComposerState(composerState, activeProvider, providerDefaults)
-  const selectedProvider = providerLocked ? activeProvider : composerState.provider
+  const providerLocked = false
+  const providerPrefs = getEffectiveComposerState(composerState, null, providerDefaults)
+  const selectedProvider = composerState.provider
   const providerConfig = availableProviders.find((provider) => provider.id === selectedProvider) ?? availableProviders[0]
   const showPlanMode = providerConfig?.supportsPlanMode ?? false
   const activeContextWindow = useMemo(() => {
@@ -341,6 +341,13 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   useEffect(() => {
     initializeComposerForChat(composerChatId)
   }, [composerChatId, initializeComposerForChat])
+
+  // Sync the composer's provider with the chat's activeProvider when the chat loads
+  useEffect(() => {
+    if (activeProvider && composerState.provider !== activeProvider) {
+      resetChatComposerFromProvider(composerChatId, activeProvider)
+    }
+  }, [activeProvider, composerChatId, resetChatComposerFromProvider, composerState.provider])
 
   useEffect(() => {
     uploadGenerationRef.current += 1
@@ -831,9 +838,9 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
                   break
                 case "fastMode":
                   updateComposerState(
-                    (state) => state.provider === "claude"
-                      ? state
-                      : { ...state, modelOptions: { ...state.modelOptions, fastMode: change.fastMode } }
+                    (state) => state.provider === "codex"
+                      ? { ...state, modelOptions: { ...state.modelOptions, fastMode: change.fastMode } }
+                      : state
                   )
                   break
               }
