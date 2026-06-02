@@ -652,6 +652,186 @@ function WorkflowStartCard({
   )
 }
 
+function WorkflowMarketplacePanel({
+  definitions,
+  actions,
+}: {
+  definitions?: import("../types").WorkflowDefinitionSummary[]
+  actions: import("../types").WorkflowTrackerActions
+}) {
+  const [importId, setImportId] = useState("")
+  const [importLoading, setImportLoading] = useState(false)
+  const [importResult, setImportResult] = useState<{ success: boolean; name?: string; error?: string } | null>(null)
+  const [shareTokens, setShareTokens] = useState<Record<string, string>>({})
+  const [sharingId, setSharingId] = useState<string | null>(null)
+
+  const handleImport = async () => {
+    if (!importId.trim() || !actions.onImportWorkflowById) return
+    setImportLoading(true)
+    setImportResult(null)
+    try {
+      const imported = await actions.onImportWorkflowById(importId.trim())
+      setImportResult({ success: true, name: imported.name })
+      setImportId("")
+    } catch (err: any) {
+      setImportResult({ success: false, error: err?.message || "Import failed" })
+    } finally {
+      setImportLoading(false)
+    }
+  }
+
+  const handleShare = async (definitionId: string) => {
+    if (!actions.onShareWorkflow) return
+    setSharingId(definitionId)
+    try {
+      const token = await actions.onShareWorkflow(definitionId)
+      setShareTokens(prev => ({ ...prev, [definitionId]: token }))
+    } finally {
+      setSharingId(null)
+    }
+  }
+
+  const ownedDefs = definitions?.filter(d => d.isRegistered) ?? []
+
+  return (
+    <section className="border-b border-border p-3 space-y-4">
+      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+        <ArrowRight className="h-3.5 w-3.5 text-logo" /> Workflow Marketplace
+      </div>
+
+      {/* Import by Share ID */}
+      <div className="rounded-2xl border border-border bg-card p-3 shadow-sm space-y-2">
+        <div className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+          <Link2 className="h-3.5 w-3.5 text-muted-foreground" /> Import Workflow by Share ID
+        </div>
+        <div className="flex gap-2">
+          <input
+            id="import-share-id-input"
+            type="text"
+            value={importId}
+            onChange={e => setImportId(e.target.value)}
+            placeholder="Paste share ID (e.g. share-abc123...)"
+            className="flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-logo"
+            onKeyDown={e => e.key === "Enter" && handleImport()}
+          />
+          <button
+            type="button"
+            onClick={handleImport}
+            disabled={importLoading || !importId.trim()}
+            className="rounded-md bg-logo px-3 py-1.5 text-xs font-semibold text-white hover:bg-logo/90 transition-colors disabled:opacity-50"
+          >
+            {importLoading ? "Importing..." : "Import"}
+          </button>
+        </div>
+        {importResult && (
+          <div className={cn(
+            "rounded-lg p-2 text-xs font-medium",
+            importResult.success
+              ? "bg-[hsl(var(--chart-2)/0.12)] border border-[hsl(var(--chart-2)/0.35)] text-foreground"
+              : "bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400"
+          )}>
+            {importResult.success
+              ? `✓ Successfully imported "${importResult.name}". It has been added to your catalog.`
+              : `✗ ${importResult.error}`
+            }
+          </div>
+        )}
+      </div>
+
+      {/* Share your own workflows */}
+      {ownedDefs.length > 0 && actions.onShareWorkflow && (
+        <div className="rounded-2xl border border-border bg-card p-3 shadow-sm space-y-2">
+          <div className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+            <Plus className="h-3.5 w-3.5 text-muted-foreground" /> Share Your Workflows
+          </div>
+          <div className="space-y-2">
+            {ownedDefs.map(def => (
+              <div key={def.id} className="rounded-xl border border-border bg-background p-2.5 space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-xs font-semibold text-foreground">{def.name}</div>
+                    {def.importLineage && (
+                      <div className="text-[10px] text-muted-foreground">
+                        Imported from <span className="font-mono">{def.importLineage.sourceOwner}</span>
+                        {def.importLineage.updateAvailable && (
+                          <span className="ml-1.5 text-amber-500 font-semibold">· Update available ({def.importLineage.latestSourceVersion})</span>
+                        )}
+                      </div>
+                    )}
+                    {def.isOfficialGlobal && (
+                      <div className="text-[10px] text-[hsl(var(--chart-2))] font-semibold flex items-center gap-1">
+                        <CheckCircle2 className="h-2.5 w-2.5" /> Official Global
+                      </div>
+                    )}
+                    {def.marketplaceMetadata?.publishStatus === "pending" && (
+                      <div className="text-[10px] text-amber-500 font-semibold flex items-center gap-1">
+                        <Clock3 className="h-2.5 w-2.5" /> Pending global publish review
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {!def.importLineage && !def.isOfficialGlobal && actions.onPublishGlobalRequest && def.marketplaceMetadata?.publishStatus !== "pending" && (
+                      <button
+                        type="button"
+                        onClick={() => actions.onPublishGlobalRequest!(def.id, {})}
+                        className="h-6 px-2 rounded border border-border bg-background hover:bg-muted text-[10px] font-semibold text-foreground transition-colors"
+                        title="Submit for global publishing"
+                      >
+                        Publish
+                      </button>
+                    )}
+                    {actions.onApproveGlobalPublish && def.marketplaceMetadata?.publishStatus === "pending" && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => actions.onApproveGlobalPublish!(def.id)}
+                          className="h-6 px-2 rounded bg-[hsl(var(--chart-2)/0.15)] border border-[hsl(var(--chart-2)/0.35)] text-[10px] font-semibold text-foreground hover:bg-[hsl(var(--chart-2)/0.25)] transition-colors"
+                          title="Approve global publish"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => actions.onRejectGlobalPublish!(def.id)}
+                          className="h-6 px-2 rounded bg-red-500/10 border border-red-500/20 text-[10px] font-semibold text-red-600 hover:bg-red-500/20 transition-colors"
+                          title="Reject global publish"
+                        >
+                          Reject
+                        </button>
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      disabled={sharingId === def.id}
+                      onClick={() => handleShare(def.id)}
+                      className="h-6 px-2 rounded border border-border bg-background hover:bg-muted text-[10px] font-semibold text-foreground transition-colors disabled:opacity-50"
+                      title="Generate share link"
+                    >
+                      {sharingId === def.id ? "..." : "Share"}
+                    </button>
+                  </div>
+                </div>
+                {shareTokens[def.id] && (
+                  <div className="rounded-lg bg-muted/50 border border-border px-2.5 py-1.5 flex items-center gap-2">
+                    <code className="flex-1 text-[10px] font-mono text-foreground truncate">{shareTokens[def.id]}</code>
+                    <button
+                      type="button"
+                      className="shrink-0 text-[10px] text-logo hover:underline font-semibold"
+                      onClick={() => navigator.clipboard.writeText(shareTokens[def.id])}
+                    >
+                      Copy
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
 function WorkflowFlowGraphView({
   flowGraph,
   actions
@@ -1528,6 +1708,13 @@ export function WorkflowTrackerPanel({
             onRepairArtifact={setRepairTarget}
           />
         </section>
+
+        {(actions.onShareWorkflow || actions.onImportWorkflowById) && (
+          <WorkflowMarketplacePanel
+            definitions={actions.workflowDefinitions}
+            actions={actions}
+          />
+        )}
 
         {run.flowGraph && (
           <WorkflowFlowGraphView

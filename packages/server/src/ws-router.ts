@@ -1676,6 +1676,83 @@ export function createWsRouter({
           await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
           return
         }
+        case "workflow.shareWorkflow": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          if (!resolvedWorkflowStore.shareWorkflow) {
+            throw new Error("Workflow runtime store does not support sharing workflows.")
+          }
+          const result = await resolvedWorkflowStore.shareWorkflow({
+            projectId: command.projectId,
+            definitionId: command.definitionId,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          return
+        }
+        case "workflow.importWorkflowById": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          if (!resolvedWorkflowStore.importWorkflowById) {
+            throw new Error("Workflow runtime store does not support importing workflows.")
+          }
+          const result = await resolvedWorkflowStore.importWorkflowById({
+            projectId: command.projectId,
+            shareId: command.shareId,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
+          return
+        }
+        case "workflow.publishGlobalRequest": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          if (!resolvedWorkflowStore.publishGlobalRequest) {
+            throw new Error("Workflow runtime store does not support global publishing.")
+          }
+          await resolvedWorkflowStore.publishGlobalRequest({
+            projectId: command.projectId,
+            definitionId: command.definitionId,
+            metadata: command.metadata,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { ok: true } })
+          return
+        }
+        case "workflow.approveGlobalPublish": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          if (!resolvedWorkflowStore.approveGlobalPublish) {
+            throw new Error("Workflow runtime store does not support approving global publish.")
+          }
+          await resolvedWorkflowStore.approveGlobalPublish({
+            projectId: command.projectId,
+            definitionId: command.definitionId,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { ok: true } })
+          return
+        }
+        case "workflow.rejectGlobalPublish": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          if (!resolvedWorkflowStore.rejectGlobalPublish) {
+            throw new Error("Workflow runtime store does not support rejecting global publish.")
+          }
+          await resolvedWorkflowStore.rejectGlobalPublish({
+            projectId: command.projectId,
+            definitionId: command.definitionId,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { ok: true } })
+          return
+        }
         case "update.check": {
           const snapshot = updateManager
             ? await updateManager.checkForUpdates({ force: command.force })

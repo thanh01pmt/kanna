@@ -524,4 +524,130 @@ describe("InMemoryWorkflowRuntimeStore parallel subagent worktrees", () => {
   })
 })
 
+describe("InMemoryWorkflowRuntimeStore workflow sharing marketplace", () => {
+  async function bootstrapDefinition(store: InMemoryWorkflowRuntimeStore, projectId: string, name: string) {
+    return store.publishManifest({
+      projectId,
+      manifest: {
+        version: "1.0.0",
+        name,
+        nodes: [{ id: "step-1", name: "Step One", parent_id: null, node_type: "agent" }],
+      },
+    })
+  }
+
+  test("shareWorkflow generates a share token for an owned definition", async () => {
+    const store = new InMemoryWorkflowRuntimeStore()
+    const def = await bootstrapDefinition(store, "project-a", "My Workflow")
+
+    const token = await store.shareWorkflow!({ projectId: "project-a", definitionId: def.id })
+
+    expect(typeof token).toBe("string")
+    expect(token).toMatch(/^share-/)
+  })
+
+  test("private workflows are not visible to other projects without a share", async () => {
+    const store = new InMemoryWorkflowRuntimeStore()
+    await bootstrapDefinition(store, "project-a", "Private Workflow")
+
+    const visibleToB = await store.listDefinitions("project-b")
+    const found = visibleToB.find(d => d.name === "Private Workflow")
+    expect(found).toBeUndefined()
+  })
+
+  test("importWorkflowById resolves a valid share token and creates an imported copy", async () => {
+    const store = new InMemoryWorkflowRuntimeStore()
+    const def = await bootstrapDefinition(store, "project-a", "Shareable Workflow")
+
+    const token = await store.shareWorkflow!({ projectId: "project-a", definitionId: def.id })
+
+    const imported = await store.importWorkflowById!({ projectId: "project-b", shareId: token })
+
+    expect(imported.name).toBe("Shareable Workflow")
+    expect(imported.ownerId).toBe("project-b")
+    expect(imported.importLineage).toBeDefined()
+    expect(imported.importLineage!.sourceWorkflowId).toBe(def.id)
+    expect(imported.importLineage!.sourceOwner).toBe("project-a")
+  })
+
+  test("importWorkflowById throws for invalid or revoked share IDs", async () => {
+    const store = new InMemoryWorkflowRuntimeStore()
+
+    await expect(
+      store.importWorkflowById!({ projectId: "project-b", shareId: "share-invalid-xyz" })
+    ).rejects.toThrow("Invalid or revoked share ID")
+  })
+
+  test("imported workflows become visible to the importing project", async () => {
+    const store = new InMemoryWorkflowRuntimeStore()
+    const def = await bootstrapDefinition(store, "project-a", "Imported Workflow")
+
+    const token = await store.shareWorkflow!({ projectId: "project-a", definitionId: def.id })
+    await store.importWorkflowById!({ projectId: "project-b", shareId: token })
+
+    const visibleToB = await store.listDefinitions("project-b")
+    const found = visibleToB.find(d => d.name === "Imported Workflow")
+    expect(found).toBeDefined()
+    expect(found!.isRegistered).toBe(true)
+  })
+
+  test("publishGlobalRequest marks workflow with pending status", async () => {
+    const store = new InMemoryWorkflowRuntimeStore()
+    const def = await bootstrapDefinition(store, "project-a", "Global Candidate")
+
+    await store.publishGlobalRequest!({
+      projectId: "project-a",
+      definitionId: def.id,
+      metadata: { category: "education", tags: ["ai"], summary: "A great workflow" },
+    })
+
+    const defs = await store.listDefinitions()
+    const updated = defs.find(d => d.id === def.id)
+    expect(updated?.marketplaceMetadata?.publishStatus).toBe("pending")
+    expect(updated?.marketplaceMetadata?.category).toBe("education")
+  })
+
+  test("approveGlobalPublish makes workflow globally visible to all projects", async () => {
+    const store = new InMemoryWorkflowRuntimeStore()
+    const def = await bootstrapDefinition(store, "project-a", "Official Workflow")
+
+    await store.publishGlobalRequest!({
+      projectId: "project-a",
+      definitionId: def.id,
+      metadata: {},
+    })
+
+    await store.approveGlobalPublish!({ projectId: "reviewer", definitionId: def.id })
+
+    const visibleToB = await store.listDefinitions("project-b")
+    const found = visibleToB.find(d => d.id === def.id)
+    expect(found).toBeDefined()
+    expect(found!.isOfficialGlobal).toBe(true)
+    expect(found!.marketplaceMetadata?.publishStatus).toBe("approved")
+  })
+
+  test("rejectGlobalPublish sets status to rejected and does NOT make it global", async () => {
+    const store = new InMemoryWorkflowRuntimeStore()
+    const def = await bootstrapDefinition(store, "project-a", "Rejected Workflow")
+
+    await store.publishGlobalRequest!({
+      projectId: "project-a",
+      definitionId: def.id,
+      metadata: {},
+    })
+
+    await store.rejectGlobalPublish!({ projectId: "reviewer", definitionId: def.id })
+
+    const visibleToB = await store.listDefinitions("project-b")
+    const found = visibleToB.find(d => d.id === def.id)
+    expect(found).toBeUndefined()
+
+    const allDefs = await store.listDefinitions()
+    const rejected = allDefs.find(d => d.id === def.id)
+    expect(rejected?.marketplaceMetadata?.publishStatus).toBe("rejected")
+    expect(rejected?.isOfficialGlobal).toBeFalsy()
+  })
+})
+
+
 
