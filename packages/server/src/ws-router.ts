@@ -1564,6 +1564,118 @@ export function createWsRouter({
           await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
           return
         }
+        case "workflow.inspectResumePlan": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          if (!resolvedWorkflowStore.inspectResumePlan) {
+            throw new Error("Workflow runtime store does not support inspecting resume plans.")
+          }
+          const result = await resolvedWorkflowStore.inspectResumePlan({
+            projectId: command.projectId,
+            runId: command.runId,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          return
+        }
+        case "workflow.resumeRun": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          if (!resolvedWorkflowStore.resumeRun) {
+            throw new Error("Workflow runtime store does not support resuming runs.")
+          }
+          const result = await resolvedWorkflowStore.resumeRun({
+            projectId: command.projectId,
+            runId: command.runId,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
+          return
+        }
+        case "workflow.restartRun": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          if (!resolvedWorkflowStore.restartRun) {
+            throw new Error("Workflow runtime store does not support restarting runs.")
+          }
+          const result = await resolvedWorkflowStore.restartRun({
+            projectId: command.projectId,
+            runId: command.runId,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
+          return
+        }
+        case "workflow.archiveRun": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          if (!resolvedWorkflowStore.archiveRun) {
+            throw new Error("Workflow runtime store does not support archiving runs.")
+          }
+          const result = await resolvedWorkflowStore.archiveRun({
+            projectId: command.projectId,
+            runId: command.runId,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
+          return
+        }
+        case "workflow.spawnParallelJob": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          if (!resolvedWorkflowStore.spawnParallelJob) {
+            throw new Error("Workflow runtime store does not support spawning parallel jobs.")
+          }
+          const result = await resolvedWorkflowStore.spawnParallelJob({
+            projectId: command.projectId,
+            parentRunId: command.parentRunId,
+            workflowDefinitionId: command.workflowDefinitionId,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
+          return
+        }
+        case "workflow.mergeParallelJob": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          if (!resolvedWorkflowStore.mergeParallelJob) {
+            throw new Error("Workflow runtime store does not support merging parallel jobs.")
+          }
+          const result = await resolvedWorkflowStore.mergeParallelJob({
+            projectId: command.projectId,
+            jobId: command.jobId,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
+          return
+        }
+        case "workflow.discardParallelJob": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          if (!resolvedWorkflowStore.discardParallelJob) {
+            throw new Error("Workflow runtime store does not support discarding parallel jobs.")
+          }
+          const result = await resolvedWorkflowStore.discardParallelJob({
+            projectId: command.projectId,
+            jobId: command.jobId,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
+          return
+        }
         case "update.check": {
           const snapshot = updateManager
             ? await updateManager.checkForUpdates({ force: command.force })

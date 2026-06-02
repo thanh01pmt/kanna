@@ -1087,6 +1087,18 @@ export type WorkflowNodeStatus =
   | "failed"
   | "waiting"
   | "skipped"
+  | "interrupted"
+  | "archived"
+
+export interface WorkflowCheckpoint {
+  nodeId: string
+  workflowVersionId: string
+  inputs: Array<{ path: string; version?: string; checksum?: string }>
+  outputs: Array<{ path: string; version?: string; checksum?: string }>
+  lockState?: string
+  lastEventSequence: number
+  agentTurnId?: string
+}
 
 export type WorkflowNodeSource = "imported" | "discovered" | "dynamic" | "conditional" | "spawned"
 
@@ -1143,6 +1155,11 @@ export interface WorkflowDefinitionSummary {
   staleInputs?: Array<{ path: string; currentChecksum: string; recordedChecksum: string }>
   settings?: Record<string, any>
   manifest?: any
+  ownerId?: string
+  isOfficialGlobal?: boolean
+  shareToken?: string
+  marketplaceMetadata?: WorkflowMarketplaceMetadata
+  importLineage?: WorkflowImportLineage
 }
 
 export interface WorkflowNode {
@@ -1163,6 +1180,7 @@ export interface WorkflowNode {
   logSummary?: string
   artifacts?: WorkflowArtifactRef[]
   children?: WorkflowNode[]
+  checkpoint?: WorkflowCheckpoint
 }
 
 export interface WorkflowPack {
@@ -1221,6 +1239,9 @@ export interface WorkflowRunProjection {
   elapsedMs?: number
   tokenTotalKnown?: number
   definitionVersion?: string
+  workflowDefinitionId?: string
+  resumable?: boolean
+  checkpoint?: WorkflowCheckpoint
   root: WorkflowNode
   latestArtifacts?: WorkflowArtifactRef[]
   impacts?: WorkflowArtifactImpact[]
@@ -1231,5 +1252,70 @@ export interface WorkflowRunProjection {
   }
   locks?: WorkflowLock[]
   lockConflicts?: WorkflowLockConflict[]
+  jobs?: WorkflowSubAgentJob[]
 }
+
+export type WorkflowJobStatus =
+  | 'queued'
+  | 'running'
+  | 'waiting_review'
+  | 'merged'
+  | 'discarded'
+  | 'failed'
+  | 'interrupted'
+
+export interface WorkflowSubAgentJob {
+  id: string
+  projectId: string
+  parentRunId: string
+  workflowDefinitionId: string
+  versionId: string
+  status: WorkflowJobStatus
+  worktreePath: string
+  branchName: string
+  producedArtifacts: WorkflowArtifactRef[]
+  diffSummary?: {
+    filesChangedCount: number
+    insertions: number
+    deletions: number
+    changes: { path: string; status: 'added' | 'modified' | 'deleted'; diff?: string }[]
+  }
+  mergeStatus?: 'clean' | 'conflicts' | 'stale_inputs'
+  reasons?: string[]
+  startedAt: string
+  completedAt?: string
+}
+
+export interface WorkflowShareToken {
+  id: string
+  workflowDefinitionId: string
+  versionId: string
+  sharedByUserId: string
+  sharedAt: string
+  expiresAt?: string
+  revoked?: boolean
+}
+
+export interface WorkflowMarketplaceMetadata {
+  category?: string
+  tags?: string[]
+  author?: string
+  compatibility?: string
+  summary?: string
+  publishStatus?: "pending" | "approved" | "rejected"
+  publishRequestedAt?: string
+  approvedAt?: string
+  approvedByUserId?: string
+}
+
+export interface WorkflowImportLineage {
+  sourceWorkflowId: string
+  sourceVersionId: string
+  sourceVersion: string
+  sourceOwner: string
+  importedAt: string
+  updateAvailable?: boolean
+  latestSourceVersion?: string
+}
+
 

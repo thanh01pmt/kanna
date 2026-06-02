@@ -12,6 +12,11 @@ export type {
   WorkflowDefinitionSummary,
   WorkflowLock,
   WorkflowLockConflict,
+  WorkflowJobStatus,
+  WorkflowSubAgentJob,
+  WorkflowShareToken,
+  WorkflowMarketplaceMetadata,
+  WorkflowImportLineage,
 } from "@kanna/shared/types"
 
 export interface WorkflowTrackerActions {
@@ -37,4 +42,16 @@ export interface WorkflowTrackerActions {
   onApproveFlowEdge?: (edgeId: string) => void | Promise<void>
   onRejectFlowEdge?: (edgeId: string) => void | Promise<void>
   onRecoverLock?: (lockId: string) => void | Promise<void>
+  onInspectResumePlan?: (runId: string) => Promise<any>
+  onResumeRun?: (runId: string) => void | Promise<void>
+  onRestartRun?: (runId: string) => void | Promise<void>
+  onArchiveRun?: (runId: string) => void | Promise<void>
+  onSpawnParallelJob?: (runId: string, workflowDefinitionId: string) => void | Promise<void>
+  onMergeParallelJob?: (jobId: string) => void | Promise<void>
+  onDiscardParallelJob?: (jobId: string) => void | Promise<void>
+  onShareWorkflow?: (definitionId: string) => Promise<string>
+  onImportWorkflowById?: (shareId: string) => Promise<WorkflowDefinitionSummary>
+  onPublishGlobalRequest?: (definitionId: string, metadata: WorkflowMarketplaceMetadata) => Promise<void>
+  onApproveGlobalPublish?: (definitionId: string) => Promise<void>
+  onRejectGlobalPublish?: (definitionId: string) => Promise<void>
 }

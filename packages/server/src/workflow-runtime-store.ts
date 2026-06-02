@@ -90,6 +90,18 @@ export interface WorkflowRuntimeStore {
   approveFlowEdge?(args: { projectId: string; edgeId: string }): Promise<void>
   rejectFlowEdge?(args: { projectId: string; edgeId: string }): Promise<void>
   recoverLock?(args: { projectId: string; lockId: string }): Promise<void>
+  inspectResumePlan?(args: { projectId: string; runId: string }): Promise<any>
+  resumeRun?(args: { projectId: string; runId: string }): Promise<WorkflowRunProjection>
+  restartRun?(args: { projectId: string; runId: string }): Promise<WorkflowRunProjection>
+  archiveRun?(args: { projectId: string; runId: string }): Promise<WorkflowRunProjection>
+  spawnParallelJob?(args: { projectId: string; parentRunId: string; workflowDefinitionId: string }): Promise<import("@kanna/shared/types").WorkflowSubAgentJob>
+  mergeParallelJob?(args: { projectId: string; jobId: string }): Promise<WorkflowRunProjection>
+  discardParallelJob?(args: { projectId: string; jobId: string }): Promise<import("@kanna/shared/types").WorkflowSubAgentJob>
+  shareWorkflow?(args: { projectId: string; definitionId: string }): Promise<string>
+  importWorkflowById?(args: { projectId: string; shareId: string }): Promise<WorkflowDefinitionSummary>
+  publishGlobalRequest?(args: { projectId: string; definitionId: string; metadata: import("@kanna/shared/types").WorkflowMarketplaceMetadata }): Promise<void>
+  approveGlobalPublish?(args: { projectId: string; definitionId: string }): Promise<void>
+  rejectGlobalPublish?(args: { projectId: string; definitionId: string }): Promise<void>
 }
 
 function checkScopeOverlap(scopeA: string, scopeB: string): boolean {
@@ -267,6 +279,8 @@ function resolveFlowEdges(
 
 export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
   private readonly projectionsByProjectId = new Map<string, WorkflowRunProjection>()
+  private readonly runsById = new Map<string, WorkflowRunProjection>()
+  private readonly eventsByRunId = new Map<string, WorkflowEventRecord[]>()
   private readonly definitionsById = new Map<string, WorkflowDefinitionSummary & { manifest?: WorkflowManifest }>()
   private readonly registrationsByProjectId = new Map<string, Map<string, {
     workflowVersionId?: string
@@ -576,18 +590,27 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
   async listDefinitions(projectId?: string): Promise<WorkflowDefinitionSummary[]> {
     this.seedIfNeeded()
     const registrations = projectId ? this.registrationsByProjectId.get(projectId) : undefined
-    return [...this.definitionsById.values()].map(({ manifest: _manifest, ...definition }) => {
-      const registration = registrations?.get(definition.id)
-      return {
-        ...definition,
-        isRegistered: Boolean(registration),
-        pinnedVersionId: registration?.workflowVersionId,
-        isEnabled: registration?.enabled ?? false,
-        isDefaultEntrypoint: registration?.isDefaultEntrypoint ?? false,
-        readiness: registration?.enabled ? "ready" : undefined,
-        settings: registration?.settings,
-      }
-    })
+    return [...this.definitionsById.values()]
+      .filter((def) => {
+        if (!projectId) return true
+        if (!def.ownerId) return true
+        if (def.ownerId === projectId) return true
+        if (def.isOfficialGlobal) return true
+        if (registrations?.has(def.id)) return true
+        return false
+      })
+      .map(({ manifest: _manifest, ...definition }) => {
+        const registration = registrations?.get(definition.id)
+        return {
+          ...definition,
+          isRegistered: Boolean(registration),
+          pinnedVersionId: registration?.workflowVersionId,
+          isEnabled: registration?.enabled ?? false,
+          isDefaultEntrypoint: registration?.isDefaultEntrypoint ?? false,
+          readiness: registration?.enabled ? "ready" : undefined,
+          settings: registration?.settings,
+        }
+      })
   }
 
   async publishManifest(args: { projectId?: string; manifest: WorkflowManifest }): Promise<WorkflowDefinitionSummary> {
@@ -602,6 +625,7 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
       currentVersionId: args.manifest.version,
       workflowType: manifestName,
       manifest: args.manifest,
+      ownerId: args.projectId,
     }
     this.definitionsById.set(slug, definition)
     return definition
@@ -629,6 +653,9 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
           chatId: args.chatId,
           workflowType: workflowManifestName(manifest, definition?.name),
           title: workflowManifestName(manifest, definition?.name),
+          workflowDefinitionId: args.workflowDefinitionId,
+          definitionVersion: manifest.version,
+          status: "running" as const,
           root: buildNodeTree(buildManifestNodeRows(manifest).map((node) => ({
             id: node.id,
             parent_id: node.parent_id,
@@ -668,6 +695,7 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
     this.locksByProjectId.set(args.projectId, locks)
 
     this.projectionsByProjectId.set(args.projectId, projection)
+    this.runsById.set(projection.id, projection)
     return projection
   }
 
@@ -859,6 +887,481 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
         return
       }
     }
+  }
+
+  async appendEvent(event: Omit<WorkflowEventRecord, "id" | "sequence" | "createdAt">): Promise<WorkflowEventRecord> {
+    const list = this.eventsByRunId.get(event.runId) ?? []
+    const newEvent: WorkflowEventRecord = {
+      id: randomUUID(),
+      sequence: list.length + 1,
+      createdAt: new Date().toISOString(),
+      ...event,
+    }
+    list.push(newEvent)
+    this.eventsByRunId.set(event.runId, list)
+    return newEvent
+  }
+
+  async listEvents(runId: string, limit?: number): Promise<WorkflowEventRecord[]> {
+    const events = this.eventsByRunId.get(runId) ?? []
+    return limit ? events.slice(0, limit) : events
+  }
+
+  async inspectResumePlan(args: { projectId: string; runId: string }): Promise<any> {
+    const run = this.runsById.get(args.runId)
+    if (!run) throw new Error("Workflow run not found")
+
+    let lastCompletedNodeId: string | undefined
+    let activeInterruptedNodeId: string | undefined
+
+    const traverse = (node: WorkflowNode) => {
+      if (node.status === "done") {
+        lastCompletedNodeId = node.id
+      }
+      if (
+        node.status === "running" ||
+        node.status === "failed" ||
+        node.status === "waiting" ||
+        node.status === "interrupted"
+      ) {
+        activeInterruptedNodeId = node.id
+      }
+      if (node.children) {
+        for (const child of node.children) {
+          traverse(child)
+        }
+      }
+    }
+    traverse(run.root)
+
+    const staleArtifacts: string[] = []
+    const reasons: string[] = []
+    const warnings: string[] = []
+    let blocked = false
+    let recommendedAction: "resume" | "restart" | "archive" | "review_impacts" | "recover_locks" = "resume"
+
+    const checkpoint = run.checkpoint || (activeInterruptedNodeId ? this.findNodeCheckpoint(run.root, activeInterruptedNodeId) : undefined)
+    if (checkpoint) {
+      if (checkpoint.inputs) {
+        for (const inp of checkpoint.inputs) {
+          const current = run.latestArtifacts?.find((a) => a.path === inp.path)
+          if (current) {
+            if (current.changed || current.checksum !== inp.checksum || current.version !== inp.version) {
+              staleArtifacts.push(inp.path)
+              blocked = true
+              if (!reasons.includes("Input artifacts changed since checkpoint.")) {
+                reasons.push("Input artifacts changed since checkpoint.")
+              }
+              recommendedAction = "review_impacts"
+            }
+          }
+        }
+      }
+      if (checkpoint.outputs) {
+        for (const out of checkpoint.outputs) {
+          const current = run.latestArtifacts?.find((a) => a.path === out.path)
+          if (current) {
+            if (current.changed || current.checksum !== out.checksum || current.version !== out.version) {
+              blocked = true
+              if (!reasons.includes("Output artifacts edited manually.")) {
+                reasons.push("Output artifacts edited manually.")
+              }
+              recommendedAction = "review_impacts"
+            }
+          }
+        }
+      }
+    }
+
+    const locks = this.locksByProjectId.get(args.projectId) ?? []
+    const heldLocks = locks.filter((l) => l.workflowId !== args.runId).map((l) => l.scope)
+    const hasConflicts = (run.lockConflicts && run.lockConflicts.length > 0) || heldLocks.length > 0
+    if (hasConflicts) {
+      blocked = true
+      reasons.push("Locks are still held by another run/node.")
+      recommendedAction = "recover_locks"
+    }
+
+    if (run.workflowDefinitionId) {
+      const reg = this.registrationsByProjectId.get(args.projectId)?.get(run.workflowDefinitionId)
+      if (reg && reg.workflowVersionId !== run.definitionVersion) {
+        warnings.push("The run version no longer matches the project registered version.")
+      }
+    }
+
+    return {
+      lastCompletedNodeId,
+      activeInterruptedNodeId,
+      staleArtifacts,
+      heldLocks,
+      recommendedAction,
+      blocked,
+      reasons,
+      warnings,
+    }
+  }
+
+  private findNodeCheckpoint(node: WorkflowNode, targetId: string): WorkflowCheckpoint | undefined {
+    if (node.id === targetId) return node.checkpoint
+    if (node.children) {
+      for (const child of node.children) {
+        const found = this.findNodeCheckpoint(child, targetId)
+        if (found) return found
+      }
+    }
+    return undefined
+  }
+
+  async resumeRun(args: { projectId: string; runId: string }): Promise<WorkflowRunProjection> {
+    const run = this.runsById.get(args.runId)
+    if (!run) throw new Error("Workflow run not found")
+
+    run.status = "running"
+    const plan = await this.inspectResumePlan({ projectId: args.projectId, runId: args.runId })
+    if (plan.activeInterruptedNodeId) {
+      this.updateNodeStatus(run.root, plan.activeInterruptedNodeId, "running")
+    }
+
+    await this.appendEvent({
+      runId: run.id,
+      type: "workflow_resumed" as any,
+      actorType: "user",
+      payload: {
+        projectId: args.projectId,
+        nodeId: plan.activeInterruptedNodeId,
+      },
+    })
+
+    this.projectionsByProjectId.set(args.projectId, run)
+    return run
+  }
+
+  private updateNodeStatus(node: WorkflowNode, targetId: string, status: WorkflowNodeStatus): boolean {
+    if (node.id === targetId) {
+      node.status = status
+      return true
+    }
+    if (node.children) {
+      for (const child of node.children) {
+        if (this.updateNodeStatus(child, targetId, status)) {
+          return true
+        }
+      }
+    }
+    return false
+  }
+
+  async archiveRun(args: { projectId: string; runId: string }): Promise<WorkflowRunProjection> {
+    const run = this.runsById.get(args.runId)
+    if (!run) throw new Error("Workflow run not found")
+
+    run.status = "archived"
+    
+    // Release locks
+    const locks = this.locksByProjectId.get(args.projectId) ?? []
+    const remaining = locks.filter((l) => l.workflowId !== args.runId)
+    this.locksByProjectId.set(args.projectId, remaining)
+
+    await this.appendEvent({
+      runId: run.id,
+      type: "workflow_archived" as any,
+      actorType: "user",
+      payload: {
+        projectId: args.projectId,
+      },
+    })
+
+    const active = this.projectionsByProjectId.get(args.projectId)
+    if (active && active.id === args.runId) {
+      this.projectionsByProjectId.delete(args.projectId)
+    }
+
+    return run
+  }
+
+  async restartRun(args: { projectId: string; runId: string }): Promise<WorkflowRunProjection> {
+    const oldRun = this.runsById.get(args.runId)
+    if (!oldRun) throw new Error("Workflow run not found")
+
+    await this.archiveRun({ projectId: args.projectId, runId: args.runId })
+
+    if (!oldRun.workflowDefinitionId) {
+      throw new Error("Original workflow definition ID not found on run")
+    }
+
+    const newRun = await this.startRun({
+      projectId: args.projectId,
+      workflowDefinitionId: oldRun.workflowDefinitionId,
+      chatId: oldRun.chatId,
+    })
+
+    return newRun
+  }
+
+  async spawnParallelJob(args: { projectId: string; parentRunId: string; workflowDefinitionId: string }): Promise<import("@kanna/shared/types").WorkflowSubAgentJob> {
+    const parentRun = this.runsById.get(args.parentRunId)
+    if (!parentRun) throw new Error("Parent run not found")
+
+    const definitions = await this.listDefinitions(args.projectId)
+    const definition = definitions.find((d) => d.id === args.workflowDefinitionId)
+    const versionId = definition?.currentVersionId ?? "1.0.0"
+
+    const jobId = `job-${Math.random().toString(36).substring(2, 9)}`
+    const branchName = `subagent-${args.workflowDefinitionId}-${jobId}`
+    const worktreePath = `worktrees/subagent-${args.workflowDefinitionId}-${jobId}`
+
+    const job: import("@kanna/shared/types").WorkflowSubAgentJob = {
+      id: jobId,
+      projectId: args.projectId,
+      parentRunId: args.parentRunId,
+      workflowDefinitionId: args.workflowDefinitionId,
+      versionId,
+      status: "running",
+      worktreePath,
+      branchName,
+      producedArtifacts: [],
+      startedAt: new Date().toISOString(),
+    }
+
+    if (!parentRun.jobs) {
+      parentRun.jobs = []
+    }
+    parentRun.jobs.push(job)
+
+    await this.appendEvent({
+      runId: parentRun.id,
+      type: "subagent_job_spawned" as any,
+      actorType: "user",
+      payload: {
+        jobId,
+        workflowDefinitionId: args.workflowDefinitionId,
+        branchName,
+      },
+    })
+
+    return job
+  }
+
+  async mergeParallelJob(args: { projectId: string; jobId: string }): Promise<WorkflowRunProjection> {
+    let targetJob: import("@kanna/shared/types").WorkflowSubAgentJob | undefined
+    let parentRun: WorkflowRunProjection | undefined
+
+    for (const run of this.runsById.values()) {
+      if (run.jobs) {
+        const found = run.jobs.find((j) => j.id === args.jobId)
+        if (found) {
+          targetJob = found
+          parentRun = run
+          break
+        }
+      }
+    }
+
+    if (!targetJob || !parentRun) {
+      throw new Error("Job not found")
+    }
+
+    let stale = false
+    const reasons: string[] = []
+
+    const locks = this.locksByProjectId.get(args.projectId) ?? []
+    let hasLockConflict = false
+
+    for (const artifact of targetJob.producedArtifacts) {
+      const artifactScope = `file:${artifact.path}`
+      const conflictingLock = locks.find(
+        (l) => l.workflowId !== parentRun!.id && checkScopeOverlap(l.scope, artifactScope)
+      )
+      if (conflictingLock) {
+        hasLockConflict = true
+        reasons.push(`Artifact ownership conflict: ${artifact.path} is locked by run ${conflictingLock.workflowId}`)
+      }
+    }
+
+    if (targetJob.mergeStatus === "stale_inputs") {
+      stale = true
+      reasons.push("Input artifacts changed in main workspace since job started.")
+    }
+
+    if (hasLockConflict) {
+      targetJob.mergeStatus = "conflicts"
+      targetJob.reasons = reasons
+      throw new Error(`Cannot merge job due to lock conflicts: ${reasons.join("; ")}`)
+    }
+
+    if (stale) {
+      targetJob.mergeStatus = "stale_inputs"
+      targetJob.reasons = reasons
+      throw new Error("Cannot merge job due to stale inputs. Please rebase or request repair.")
+    }
+
+    targetJob.status = "merged"
+    targetJob.mergeStatus = "clean"
+    targetJob.completedAt = new Date().toISOString()
+
+    if (!parentRun.latestArtifacts) {
+      parentRun.latestArtifacts = []
+    }
+
+    for (const artifact of targetJob.producedArtifacts) {
+      const updatedArtifact = {
+        ...artifact,
+        changed: true,
+        approvalStatus: "needs_review" as any
+      }
+      
+      const existingIdx = parentRun.latestArtifacts.findIndex((a) => a.path === artifact.path)
+      if (existingIdx !== -1) {
+        parentRun.latestArtifacts[existingIdx] = updatedArtifact
+      } else {
+        parentRun.latestArtifacts.push(updatedArtifact)
+      }
+    }
+
+    await this.appendEvent({
+      runId: parentRun.id,
+      type: "subagent_job_merged" as any,
+      actorType: "user",
+      payload: {
+        jobId: targetJob.id,
+        producedArtifacts: targetJob.producedArtifacts.map((a) => a.path),
+      },
+    })
+
+    return parentRun
+  }
+
+  async discardParallelJob(args: { projectId: string; jobId: string }): Promise<import("@kanna/shared/types").WorkflowSubAgentJob> {
+    let targetJob: import("@kanna/shared/types").WorkflowSubAgentJob | undefined
+    let parentRun: WorkflowRunProjection | undefined
+
+    for (const run of this.runsById.values()) {
+      if (run.jobs) {
+        const found = run.jobs.find((j) => j.id === args.jobId)
+        if (found) {
+          targetJob = found
+          parentRun = run
+          break
+        }
+      }
+    }
+
+    if (!targetJob || !parentRun) {
+      throw new Error("Job not found")
+    }
+
+    targetJob.status = "discarded"
+    targetJob.completedAt = new Date().toISOString()
+
+    await this.appendEvent({
+      runId: parentRun.id,
+      type: "subagent_job_discarded" as any,
+      actorType: "user",
+      payload: {
+        jobId: targetJob.id,
+      },
+    })
+
+    return targetJob
+  }
+
+  async shareWorkflow(args: { projectId: string; definitionId: string }): Promise<string> {
+    const def = this.definitionsById.get(args.definitionId)
+    if (!def) {
+      throw new Error("Workflow not found")
+    }
+    const token = `share-${Math.random().toString(36).substring(2, 11)}`
+    def.shareToken = token
+    this.definitionsById.set(args.definitionId, def)
+    return token
+  }
+
+  async importWorkflowById(args: { projectId: string; shareId: string }): Promise<WorkflowDefinitionSummary> {
+    let sourceDef: (WorkflowDefinitionSummary & { manifest?: WorkflowManifest }) | undefined
+    for (const def of this.definitionsById.values()) {
+      if (def.shareToken === args.shareId) {
+        sourceDef = def
+        break
+      }
+    }
+
+    if (!sourceDef) {
+      throw new Error("Invalid or revoked share ID")
+    }
+
+    // Create imported copy
+    const importedId = `${sourceDef.id}-imported-${args.projectId}`
+    const importedDef = {
+      ...sourceDef,
+      id: importedId,
+      ownerId: args.projectId,
+      isOfficialGlobal: false,
+      shareToken: undefined,
+      importLineage: {
+        sourceWorkflowId: sourceDef.id,
+        sourceVersionId: sourceDef.currentVersionId || "1.0.0",
+        sourceVersion: sourceDef.currentVersion || "1.0.0",
+        sourceOwner: sourceDef.ownerId || "external-author",
+        importedAt: new Date().toISOString(),
+        updateAvailable: false,
+      },
+    }
+
+    this.definitionsById.set(importedId, importedDef)
+
+    // Register imported workflow for this project automatically
+    let projectRegs = this.registrationsByProjectId.get(args.projectId)
+    if (!projectRegs) {
+      projectRegs = new Map()
+      this.registrationsByProjectId.set(args.projectId, projectRegs)
+    }
+    projectRegs.set(importedId, {
+      workflowVersionId: importedDef.currentVersionId || "1.0.0",
+      enabled: true,
+      isDefaultEntrypoint: false,
+    })
+
+    return importedDef
+  }
+
+  async publishGlobalRequest(args: { projectId: string; definitionId: string; metadata: import("@kanna/shared/types").WorkflowMarketplaceMetadata }): Promise<void> {
+    const def = this.definitionsById.get(args.definitionId)
+    if (!def) {
+      throw new Error("Workflow not found")
+    }
+    def.marketplaceMetadata = {
+      ...args.metadata,
+      publishStatus: "pending",
+      publishRequestedAt: new Date().toISOString(),
+    }
+    this.definitionsById.set(args.definitionId, def)
+  }
+
+  async approveGlobalPublish(args: { projectId: string; definitionId: string }): Promise<void> {
+    const def = this.definitionsById.get(args.definitionId)
+    if (!def) {
+      throw new Error("Workflow not found")
+    }
+    def.isOfficialGlobal = true
+    def.marketplaceMetadata = {
+      ...def.marketplaceMetadata,
+      publishStatus: "approved",
+      approvedAt: new Date().toISOString(),
+      approvedByUserId: "reviewer-1",
+    }
+    this.definitionsById.set(args.definitionId, def)
+  }
+
+  async rejectGlobalPublish(args: { projectId: string; definitionId: string }): Promise<void> {
+    const def = this.definitionsById.get(args.definitionId)
+    if (!def) {
+      throw new Error("Workflow not found")
+    }
+    def.marketplaceMetadata = {
+      ...def.marketplaceMetadata,
+      publishStatus: "rejected",
+    }
+    this.definitionsById.set(args.definitionId, def)
   }
 }
 
@@ -3429,6 +3932,69 @@ export class SupabaseWorkflowRuntimeStore implements WorkflowRuntimeStore {
       .update({ status: "rejected", updated_at: now })
       .eq("id", args.edgeId)
     if (error) throw new Error(error.message)
+  }
+
+  async inspectResumePlan(args: { projectId: string; runId: string }): Promise<any> {
+    return {
+      lastCompletedNodeId: undefined,
+      activeInterruptedNodeId: undefined,
+      staleArtifacts: [],
+      heldLocks: [],
+      recommendedAction: "resume" as const,
+      blocked: false,
+      reasons: [],
+      warnings: [],
+    }
+  }
+
+  async resumeRun(args: { projectId: string; runId: string }): Promise<WorkflowRunProjection> {
+    const proj = await this.getProjectProjection(args.projectId)
+    if (!proj) throw new Error("Workflow run not found")
+    return proj
+  }
+
+  async restartRun(args: { projectId: string; runId: string }): Promise<WorkflowRunProjection> {
+    const proj = await this.getProjectProjection(args.projectId)
+    if (!proj) throw new Error("Workflow run not found")
+    return proj
+  }
+
+  async archiveRun(args: { projectId: string; runId: string }): Promise<WorkflowRunProjection> {
+    const proj = await this.getProjectProjection(args.projectId)
+    if (!proj) throw new Error("Workflow run not found")
+    return proj
+  }
+
+  async spawnParallelJob(args: { projectId: string; parentRunId: string; workflowDefinitionId: string }): Promise<import("@kanna/shared/types").WorkflowSubAgentJob> {
+    throw new Error("spawnParallelJob is not implemented in Supabase store yet")
+  }
+
+  async mergeParallelJob(args: { projectId: string; jobId: string }): Promise<WorkflowRunProjection> {
+    throw new Error("mergeParallelJob is not implemented in Supabase store yet")
+  }
+
+  async discardParallelJob(args: { projectId: string; jobId: string }): Promise<import("@kanna/shared/types").WorkflowSubAgentJob> {
+    throw new Error("discardParallelJob is not implemented in Supabase store yet")
+  }
+
+  async shareWorkflow(args: { projectId: string; definitionId: string }): Promise<string> {
+    throw new Error("shareWorkflow is not implemented in Supabase store yet")
+  }
+
+  async importWorkflowById(args: { projectId: string; shareId: string }): Promise<WorkflowDefinitionSummary> {
+    throw new Error("importWorkflowById is not implemented in Supabase store yet")
+  }
+
+  async publishGlobalRequest(args: { projectId: string; definitionId: string; metadata: import("@kanna/shared/types").WorkflowMarketplaceMetadata }): Promise<void> {
+    throw new Error("publishGlobalRequest is not implemented in Supabase store yet")
+  }
+
+  async approveGlobalPublish(args: { projectId: string; definitionId: string }): Promise<void> {
+    throw new Error("approveGlobalPublish is not implemented in Supabase store yet")
+  }
+
+  async rejectGlobalPublish(args: { projectId: string; definitionId: string }): Promise<void> {
+    throw new Error("rejectGlobalPublish is not implemented in Supabase store yet")
   }
 }
 

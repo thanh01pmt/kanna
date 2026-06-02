@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useMemo, useState, useEffect } from "react"
 import {
   AlertTriangle,
   Check,
@@ -46,6 +46,8 @@ const STATUS_LABEL: Record<WorkflowNodeStatus, string> = {
   failed: "failed",
   waiting: "waiting",
   skipped: "skipped",
+  interrupted: "interrupted",
+  archived: "archived",
 }
 
 const IMPACT_LABEL: Record<WorkflowArtifactImpactStatus, string> = {
@@ -63,6 +65,8 @@ function StatusGlyph({ status }: { status: WorkflowNodeStatus }) {
   if (status === "failed") return <XCircle className="h-3.5 w-3.5 text-logo" />
   if (status === "waiting") return <Clock3 className="h-3.5 w-3.5 text-muted-foreground" />
   if (status === "skipped") return <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+  if (status === "interrupted") return <AlertTriangle className="h-3.5 w-3.5 text-[hsl(var(--chart-1))]" />
+  if (status === "archived") return <Package className="h-3.5 w-3.5 text-muted-foreground" />
   return <span className="h-2 w-2 rounded-full border border-border bg-muted" />
 }
 
@@ -70,6 +74,8 @@ function statusBadgeClass(status: WorkflowNodeStatus) {
   if (status === "running") return "border-[hsl(var(--chart-1)/0.35)] bg-[hsl(var(--chart-1)/0.12)] text-foreground"
   if (status === "done") return "border-[hsl(var(--chart-2)/0.35)] bg-[hsl(var(--chart-2)/0.12)] text-foreground"
   if (status === "failed") return "border-logo/30 bg-logo/10 text-foreground"
+  if (status === "interrupted") return "border-amber-500/30 bg-amber-500/10 text-amber-700"
+  if (status === "archived") return "border-border bg-muted/30 text-muted-foreground"
   return "border-border bg-muted/50 text-muted-foreground"
 }
 
@@ -940,6 +946,35 @@ export function WorkflowTrackerPanel({
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [repairTarget, setRepairTarget] = useState<WorkflowArtifactRef | null>(null)
   const [activeViewNodeId, setActiveViewNodeId] = useState<string | null>(null)
+  const [resumePlan, setResumePlan] = useState<{
+    lastCompletedNodeId?: string
+    activeInterruptedNodeId?: string
+    staleArtifacts: string[]
+    heldLocks: string[]
+    recommendedAction: string
+    blocked: boolean
+    reasons: string[]
+    warnings: string[]
+  } | null>(null)
+  const [loadingPlan, setLoadingPlan] = useState(false)
+
+  useEffect(() => {
+    if (run && run.status === "interrupted" && actions.onInspectResumePlan) {
+      setLoadingPlan(true)
+      actions.onInspectResumePlan(run.id)
+        .then((plan) => {
+          setResumePlan(plan)
+        })
+        .catch((err) => {
+          console.error("Failed to inspect resume plan", err)
+        })
+        .finally(() => {
+          setLoadingPlan(false)
+        })
+    } else {
+      setResumePlan(null)
+    }
+  }, [run?.id, run?.status])
 
   // Helper to locate active sub-flow path
   const activePathResult = useMemo(() => {
@@ -1072,6 +1107,120 @@ export function WorkflowTrackerPanel({
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
+        {run.status === "interrupted" ? (
+          <div className="border-b border-border bg-amber-500/5 p-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+              <div className="min-w-0 flex-1">
+                <h3 className="text-sm font-semibold text-amber-600 dark:text-amber-400">Workflow Interrupted</h3>
+                <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                  This execution was interrupted. You can resume from the last checkpoint, restart the run, or archive it.
+                </p>
+
+                {loadingPlan ? (
+                  <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+                    <CircleDashed className="h-3.5 w-3.5 animate-spin text-amber-500" />
+                    Calculating resume plan...
+                  </div>
+                ) : resumePlan ? (
+                  <div className="mt-3 space-y-3">
+                    {resumePlan.reasons.length > 0 && (
+                      <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-2.5 space-y-1.5">
+                        <div className="text-[10px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                          Blocking Reasons:
+                        </div>
+                        <ul className="list-disc pl-4 space-y-1 text-xs text-muted-foreground">
+                          {resumePlan.reasons.map((r, i) => (
+                            <li key={i}>{r}</li>
+                          ))}
+                        </ul>
+                        {resumePlan.staleArtifacts.length > 0 && (
+                          <div className="mt-1 pl-4 text-[11px] text-muted-foreground">
+                            <strong>Modified Artifacts:</strong>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {resumePlan.staleArtifacts.map((art, idx) => (
+                                <span key={idx} className="bg-amber-500/20 px-1.5 py-0.5 rounded font-mono text-[10px]">
+                                  {art.split("/").pop()}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {resumePlan.warnings.length > 0 && (
+                      <div className="rounded-lg bg-blue-500/5 border border-blue-500/10 p-2.5 space-y-1">
+                        <div className="text-[10px] font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400">
+                          Warnings:
+                        </div>
+                        <ul className="list-disc pl-4 space-y-0.5 text-xs text-muted-foreground">
+                          {resumePlan.warnings.map((w, i) => (
+                            <li key={i}>{w}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <button
+                        type="button"
+                        disabled={resumePlan.blocked}
+                        onClick={() => actions.onResumeRun?.(run.id)}
+                        className={cn(
+                          "rounded-md px-3 py-1.5 text-xs font-semibold shadow-sm transition-colors",
+                          resumePlan.blocked
+                            ? "bg-muted text-muted-foreground cursor-not-allowed border border-border"
+                            : "bg-amber-500 text-white hover:bg-amber-600"
+                        )}
+                      >
+                        Resume Run
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => actions.onRestartRun?.(run.id)}
+                        className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-semibold hover:bg-muted text-foreground transition-colors"
+                      >
+                        Restart Run
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => actions.onArchiveRun?.(run.id)}
+                        className="rounded-md border border-border bg-background px-3 py-1.5 text-xs font-semibold hover:bg-muted text-foreground transition-colors"
+                      >
+                        Archive Run
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {run.status === "archived" ? (
+          <div className="border-b border-border bg-muted/40 p-4">
+            <div className="flex items-start gap-3">
+              <Package className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+              <div className="min-w-0 flex-1">
+                <h3 className="text-sm font-semibold text-muted-foreground">Workflow Archived</h3>
+                <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                  This execution history has been archived. You can restart a new run using the workflow definitions.
+                </p>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => actions.onRestartRun?.(run.id)}
+                    className="rounded-md bg-logo px-3 py-1.5 text-xs font-semibold text-white hover:bg-logo/90 transition-colors"
+                  >
+                    Start New Run
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         {actions.proposedManifest && actions.onPublishWorkflow ? (
           <div className="p-3 border-b border-border">
             <WorkflowManifestReviewCard
@@ -1232,6 +1381,140 @@ export function WorkflowTrackerPanel({
               ))
             )}
           </div>
+        </section>
+
+        <section className="border-b border-border p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+              <GitBranch className="h-3.5 w-3.5 text-logo" /> Parallel Sub-agent Jobs
+            </div>
+          </div>
+
+          {/* Spawn action */}
+          {run.status === "running" && actions.onSpawnParallelJob && actions.workflowDefinitions?.length ? (
+            <div className="mb-4 rounded-2xl border border-border bg-card p-3 shadow-sm">
+              <div className="text-xs font-medium text-foreground mb-2">Spawn Parallel job in Isolated Worktree:</div>
+              <div className="flex gap-2">
+                <select
+                  id="spawn-job-select"
+                  className="flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-logo"
+                  defaultValue=""
+                >
+                  <option value="" disabled>Select a workflow to run...</option>
+                  {actions.workflowDefinitions
+                    .filter((def) => def.isRegistered && def.id !== run.workflowDefinitionId)
+                    .map((def) => (
+                      <option key={def.id} value={def.id}>
+                        {def.name} ({def.id})
+                      </option>
+                    ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const select = document.getElementById("spawn-job-select") as HTMLSelectElement
+                    if (select && select.value) {
+                      actions.onSpawnParallelJob?.(run.id, select.value)
+                      select.value = ""
+                    }
+                  }}
+                  className="rounded-md bg-logo px-3 py-1.5 text-xs font-semibold text-white hover:bg-logo/90 transition-colors"
+                >
+                  Spawn
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {/* Jobs list */}
+          {run.jobs && run.jobs.length > 0 ? (
+            <div className="space-y-3">
+              {run.jobs.map((job) => {
+                const isRunning = job.status === "running"
+                const isWaitingReview = job.status === "waiting_review"
+                const isMerged = job.status === "merged"
+                const isDiscarded = job.status === "discarded"
+
+                return (
+                  <div key={job.id} className="rounded-2xl border border-border bg-card p-3 shadow-sm space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold text-xs text-foreground truncate">
+                          {job.workflowDefinitionId}
+                        </div>
+                        <div className="text-[10px] font-mono text-muted-foreground mt-0.5">
+                          Branch: {job.branchName}
+                        </div>
+                      </div>
+                      <span className={cn(
+                        "rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider border",
+                        isRunning && "border-[hsl(var(--chart-1)/0.35)] bg-[hsl(var(--chart-1)/0.12)] text-foreground",
+                        isWaitingReview && "border-amber-500/35 bg-amber-500/12 text-amber-600 dark:text-amber-400",
+                        isMerged && "border-[hsl(var(--chart-2)/0.35)] bg-[hsl(var(--chart-2)/0.12)] text-foreground",
+                        isDiscarded && "border-border bg-muted/50 text-muted-foreground"
+                      )}>
+                        {job.status}
+                      </span>
+                    </div>
+
+                    {isRunning && (
+                      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                        <CircleDashed className="h-3 w-3 animate-spin text-[hsl(var(--chart-1))]" />
+                        <span>Executing independently in isolated worktree...</span>
+                      </div>
+                    )}
+
+                    {job.producedArtifacts.length > 0 && (
+                      <div className="space-y-1">
+                        <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Produced Artifacts:</div>
+                        <div className="flex flex-wrap gap-1">
+                          {job.producedArtifacts.map((art, idx) => (
+                            <span key={idx} className="bg-muted px-1.5 py-0.5 rounded font-mono text-[9px] text-foreground border border-border">
+                              {art.path.split("/").pop()}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {job.reasons && job.reasons.length > 0 && (
+                      <div className="rounded-lg bg-red-500/5 border border-red-500/10 p-2 text-[11px] text-red-600 dark:text-red-400 space-y-0.5">
+                        <div className="font-semibold uppercase tracking-wider text-[9px]">Merge Blocked:</div>
+                        <ul className="list-disc pl-3.5 space-y-0.5">
+                          {job.reasons.map((r, idx) => (
+                            <li key={idx}>{r}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {isWaitingReview && (
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => actions.onMergeParallelJob?.(job.id)}
+                          className="rounded bg-[hsl(var(--chart-2))] hover:bg-[hsl(var(--chart-2))/90] px-2.5 py-1 text-[11px] font-bold text-white transition-colors"
+                        >
+                          Merge Review
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => actions.onDiscardParallelJob?.(job.id)}
+                          className="rounded border border-border bg-background hover:bg-muted px-2.5 py-1 text-[11px] font-bold text-foreground transition-colors"
+                        >
+                          Discard
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="text-center text-xs text-muted-foreground italic py-2">
+              No parallel sub-agent jobs running or completed.
+            </div>
+          )}
         </section>
 
         <section className="p-3 border-b border-border">
