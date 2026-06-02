@@ -637,8 +637,8 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
     if (!definition) {
       throw new Error("Workflow definition not found")
     }
-    if (definition.isOfficialGlobal || definition.ownerId !== args.projectId) {
-      throw new Error("Only workflows owned by the active project can be deleted.")
+    if (definition.isOfficialGlobal || (definition.ownerId && definition.ownerId !== args.projectId)) {
+      throw new Error("Only project or custom workflows can be deleted.")
     }
 
     this.definitionsById.delete(args.workflowDefinitionId)

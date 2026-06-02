@@ -619,13 +619,30 @@ describe("InMemoryWorkflowRuntimeStore workflow sharing marketplace", () => {
     expect(visibleToA.find(d => d.id === def.id)).toBeUndefined()
   })
 
-  test("deleteDefinition blocks workflows not owned by the active project", async () => {
+  test("deleteDefinition blocks workflows owned by another project", async () => {
     const store = new InMemoryWorkflowRuntimeStore()
     const def = await bootstrapDefinition(store, "project-a", "Other Project Workflow")
 
     await expect(
       store.deleteDefinition!({ projectId: "project-b", workflowDefinitionId: def.id })
-    ).rejects.toThrow("Only workflows owned by the active project can be deleted.")
+    ).rejects.toThrow("Only project or custom workflows can be deleted.")
+  })
+
+  test("deleteDefinition removes legacy unowned custom workflows", async () => {
+    const store = new InMemoryWorkflowRuntimeStore()
+    const def = await store.publishManifest({
+      manifest: {
+        version: "1.0.0",
+        name: "Legacy Custom Workflow",
+        artifacts: [],
+        nodes: [{ id: "step-1", name: "Step One", nodeType: "step" }],
+      },
+    })
+
+    await store.deleteDefinition!({ projectId: "project-a", workflowDefinitionId: def.id })
+
+    const visibleToA = await store.listDefinitions("project-a")
+    expect(visibleToA.find(d => d.id === def.id)).toBeUndefined()
   })
 
   test("publishGlobalRequest marks workflow with pending status", async () => {

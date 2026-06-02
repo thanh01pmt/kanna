@@ -1030,7 +1030,7 @@ export function WorkflowSection({ state }: { state: KannaState }) {
 
   const handleDeleteDefinition = async (def: WorkflowDefinitionSummary) => {
     if (!projectId) return
-    const confirmed = window.confirm(`Delete "${def.name}" from this project's workflow catalog? This cannot be undone.`)
+    const confirmed = window.confirm(`Delete "${def.name}" from the workflow catalog? This cannot be undone.`)
     if (!confirmed) return
 
     try {
@@ -1225,7 +1225,7 @@ export function WorkflowSection({ state }: { state: KannaState }) {
               </div>
             ) : (
               definitions.map((def) => {
-                const canDeleteDefinition = Boolean(projectId && def.ownerId === projectId && !def.isOfficialGlobal)
+                const canDeleteDefinition = Boolean(projectId && !def.isOfficialGlobal)
                 const availableVersions = [
                   { id: "latest", label: `Latest (${def.currentVersion || "unreleased"})` },
                   ...(def.currentVersionId ? [{ id: def.currentVersionId, label: `Version ${def.currentVersion || "current"}` }] : []),
@@ -1267,23 +1267,6 @@ export function WorkflowSection({ state }: { state: KannaState }) {
 
                     {projectId && (
                       <div className="flex flex-wrap items-center gap-4">
-                        {canDeleteDefinition && (
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteDefinition(def)}
-                            disabled={deletingDefinitionId === def.id}
-                            title="Delete workflow definition"
-                            aria-label={`Delete ${def.name}`}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-50"
-                          >
-                            {deletingDefinitionId === def.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-4 w-4" />
-                            )}
-                          </button>
-                        )}
-
                         {/* Register Checkbox */}
                         <label className="flex items-center gap-2 text-xs font-medium text-foreground cursor-pointer select-none">
                           <input
@@ -1356,6 +1339,23 @@ export function WorkflowSection({ state }: { state: KannaState }) {
                             </div>
                           </>
                         )}
+
+                        <div className="flex items-center gap-1 border-l border-border pl-3">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteDefinition(def)}
+                            disabled={!canDeleteDefinition || deletingDefinitionId === def.id}
+                            title={canDeleteDefinition ? "Delete workflow definition" : "Official workflows cannot be deleted"}
+                            aria-label={`Delete ${def.name}`}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-40"
+                          >
+                            {deletingDefinitionId === def.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>
