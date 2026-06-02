@@ -5,8 +5,9 @@ import { SlideViewer } from "@kanna/slide-viewer"
 import { FileTree } from "@kanna/tree-view"
 import { useTheme } from "../../hooks/useTheme"
 import { Button } from "../ui/button"
-import { FileText, Loader2, RefreshCw, X, Play, Sidebar, SidebarClose } from "lucide-react"
+import { FileText, Loader2, RefreshCw, X, Play, Sidebar, SidebarClose, Plus, FolderClosed } from "lucide-react"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "../ui/resizable"
+import { cn } from "../../lib/utils"
 
 // Import workspace styles
 import "@kanna/slide-viewer/styles"
@@ -16,6 +17,10 @@ interface MarkdownSlideViewerProps {
   projectId: string
   socket: KannaSocket
   onClose: () => void
+  activeTab: string | null
+  openTabs: string[]
+  onSelectTab: (tabId: string) => void
+  onCloseTab: (tabId: string, e: React.MouseEvent) => void
 }
 
 function isMarkdownFile(filePath: string | null): boolean {
@@ -52,24 +57,35 @@ export function MarkdownSlideViewer({
   projectId,
   socket,
   onClose,
+  activeTab,
+  openTabs,
+  onSelectTab,
+  onCloseTab,
 }: MarkdownSlideViewerProps) {
   const { resolvedTheme } = useTheme()
+
+  // File lists
   const [files, setFiles] = useState<ProjectFileEntry[]>([])
-  const [selectedFile, setSelectedFile] = useState<string | null>(null)
-  const [markdownContent, setMarkdownContent] = useState<string>("")
-  const [savedMarkdownContent, setSavedMarkdownContent] = useState<string>("")
   const [isLoadingFiles, setIsLoadingFiles] = useState(false)
   const [isLoadingContent, setIsLoadingContent] = useState(false)
   const [isSavingContent, setIsSavingContent] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showTree, setShowTree] = useState(true)
-  const hasUnsavedChanges = selectedFile !== null && markdownContent !== savedMarkdownContent
+
+  // Tab draft content tracking to keep unsaved drafts separate
+  const [tabContents, setTabContents] = useState<Record<string, string>>({})
+  const [savedTabContents, setSavedTabContents] = useState<Record<string, string>>({})
+
+  const activeContent = activeTab ? tabContents[activeTab] || "" : ""
+  const activeSavedContent = activeTab ? savedTabContents[activeTab] || "" : ""
+  const hasUnsavedChanges = activeTab !== null && !activeTab.startsWith("tool:") && activeContent !== activeSavedContent
+
   const preferredViewMode = useMemo(
-    () => getPreferredViewMode(selectedFile, markdownContent),
-    [markdownContent, selectedFile],
+    () => getPreferredViewMode(activeTab, activeContent),
+    [activeContent, activeTab],
   )
 
-  // Fetch the complete project file tree. Preview mode is decided after a file is selected.
+  // Fetch the complete project file tree.
   const loadFiles = useCallback(async () => {
     setIsLoadingFiles(true)
     setError(null)
@@ -78,24 +94,13 @@ export function MarkdownSlideViewer({
         type: "project.listFiles",
         projectId,
       })
-      const projectFiles = result || []
-      setFiles(projectFiles)
-      const selectableFiles = projectFiles.filter(entry => entry.type === "file")
-      
-      // Auto-select first file if none currently selected or selected file is no longer available
-      if (selectableFiles.length > 0) {
-        if (!selectedFile || !selectableFiles.some(entry => entry.path === selectedFile)) {
-          setSelectedFile(selectableFiles[0].path)
-        }
-      } else {
-        setSelectedFile(null)
-      }
+      setFiles(result || [])
     } catch (err: any) {
       setError(err.message || "Failed to scan project files")
     } finally {
       setIsLoadingFiles(false)
     }
-  }, [projectId, socket, selectedFile])
+  }, [projectId, socket])
 
   // Fetch selected file content
   const loadContent = useCallback(async (filePath: string) => {
@@ -107,10 +112,10 @@ export function MarkdownSlideViewer({
         projectId,
         relativePath: filePath,
       })
-      setMarkdownContent(content || "")
-      setSavedMarkdownContent(content || "")
+      setTabContents(prev => ({ ...prev, [filePath]: content || "" }))
+      setSavedTabContents(prev => ({ ...prev, [filePath]: content || "" }))
     } catch (err: any) {
-      setError(err.message || "Failed to read file")
+      setError(err.message || `Failed to read file: ${filePath}`)
     } finally {
       setIsLoadingContent(false)
     }
@@ -119,40 +124,54 @@ export function MarkdownSlideViewer({
   // Trigger file list load on project mount/change
   useEffect(() => {
     loadFiles()
-  }, [projectId])
+  }, [projectId, loadFiles])
 
-  // Reload content when selection changes
+  // Load content for active tab if not loaded yet
   useEffect(() => {
-    if (selectedFile) {
-      loadContent(selectedFile)
-    } else {
-      setMarkdownContent("")
-      setSavedMarkdownContent("")
+    if (activeTab && !activeTab.startsWith("tool:") && tabContents[activeTab] === undefined) {
+      loadContent(activeTab)
     }
-  }, [selectedFile, loadContent])
+  }, [activeTab, loadContent, tabContents])
 
   const handleSelectFile = useCallback((filePath: string) => {
-    if (filePath === selectedFile) {
-      return
-    }
+    onSelectTab(filePath)
+  }, [onSelectTab])
 
-    if (hasUnsavedChanges) {
-      const shouldDiscard = window.confirm("You have unsaved Raw edits. Switch files and discard them?")
-      if (!shouldDiscard) {
+  const handleCloseTab = useCallback((filePath: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+
+    // Unsaved changes check
+    const hasChanges = tabContents[filePath] !== savedTabContents[filePath]
+    if (hasChanges) {
+      const confirmDiscard = window.confirm(`Discard unsaved edits in ${filePath.split("/").pop()}?`)
+      if (!confirmDiscard) {
         return
       }
     }
 
-    setIsLoadingContent(true)
-    setMarkdownContent("")
-    setSavedMarkdownContent("")
-    setSelectedFile(filePath)
-  }, [hasUnsavedChanges, selectedFile])
+    onCloseTab(filePath, e)
+
+    // Clean up states
+    setTabContents(prev => {
+      const next = { ...prev }
+      delete next[filePath]
+      return next
+    })
+    setSavedTabContents(prev => {
+      const next = { ...prev }
+      delete next[filePath]
+      return next
+    })
+  }, [onCloseTab, tabContents, savedTabContents])
 
   const handleSaveMarkdown = useCallback(async () => {
-    if (!selectedFile || !hasUnsavedChanges || isSavingContent) {
+    if (!activeTab || activeTab.startsWith("tool:") || isSavingContent) {
       return
     }
+
+    const currentVal = tabContents[activeTab] || ""
+    const savedVal = savedTabContents[activeTab] || ""
+    if (currentVal === savedVal) return
 
     setIsSavingContent(true)
     setError(null)
@@ -160,16 +179,21 @@ export function MarkdownSlideViewer({
       await socket.command({
         type: "project.writeFile",
         projectId,
-        relativePath: selectedFile,
-        content: markdownContent,
+        relativePath: activeTab,
+        content: currentVal,
       })
-      setSavedMarkdownContent(markdownContent)
+      setSavedTabContents(prev => ({ ...prev, [activeTab]: currentVal }))
     } catch (err: any) {
       setError(err.message || "Failed to save file")
     } finally {
       setIsSavingContent(false)
     }
-  }, [hasUnsavedChanges, isSavingContent, markdownContent, projectId, selectedFile, socket])
+  }, [activeTab, isSavingContent, tabContents, savedTabContents, projectId, socket])
+
+  const handleContentChange = useCallback((newContent: string) => {
+    if (!activeTab || activeTab.startsWith("tool:")) return
+    setTabContents(prev => ({ ...prev, [activeTab]: newContent }))
+  }, [activeTab])
 
   const renderContentArea = () => {
     if (isLoadingContent) {
@@ -181,24 +205,24 @@ export function MarkdownSlideViewer({
       )
     }
 
-    if (selectedFile) {
+    if (activeTab && !activeTab.startsWith("tool:")) {
       return (
         <SlideViewer
-          markdown={markdownContent}
+          markdown={activeContent}
           kannaTheme={resolvedTheme}
           preferredViewMode={preferredViewMode}
-          contentIdentity={`${selectedFile}:${savedMarkdownContent}`}
-          rawFileName={selectedFile}
+          contentIdentity={`${activeTab}:${activeSavedContent}`}
+          rawFileName={activeTab}
           hasUnsavedChanges={hasUnsavedChanges}
           isSavingMarkdown={isSavingContent}
-          onMarkdownChange={setMarkdownContent}
+          onMarkdownChange={handleContentChange}
           onSaveMarkdown={handleSaveMarkdown}
         />
       )
     }
 
     return (
-      <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-muted-foreground">
+      <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-muted-foreground bg-background">
         <Play className="h-10 w-10 mb-2 opacity-40 animate-pulse text-logo" />
         <p className="text-sm font-medium">Ready to Browse</p>
         <p className="text-xs opacity-75 mt-1 max-w-xs">
@@ -208,79 +232,112 @@ export function MarkdownSlideViewer({
     )
   }
 
-  return (
-    <div className="flex flex-col h-full bg-background border-l border-border/80">
-      {/* Toolbar header */}
-      <div className="flex items-center justify-between p-3 border-b border-border/80 bg-card/60 shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setShowTree(prev => !prev)}
-            className="h-8 w-8 text-muted-foreground hover:text-foreground shrink-0"
-            title={showTree ? "Hide File Tree" : "Show File Tree"}
-          >
-            {showTree ? <SidebarClose className="h-4 w-4" /> : <Sidebar className="h-4 w-4" />}
-          </Button>
+  // Determine if showing standard FileTree explorer or Editor
+  const isFilesExplorerTab = !activeTab || activeTab === "tool:files"
 
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            {isLoadingFiles ? (
-              <>
-                <Loader2 className="h-3 w-3 animate-spin text-logo" />
-                Scanning project...
-              </>
-            ) : (
-              <>
-                <FileText className="h-3.5 w-3.5" />
-                <span className="font-medium truncate max-w-[180px]">
-                  {selectedFile ? selectedFile.split("/").pop() : "Presentation Viewer"}
-                </span>
-              </>
-            )}
-          </div>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={loadFiles}
-            className="h-8 w-8 text-muted-foreground hover:text-foreground shrink-0"
-            title="Scan for Markdown files"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-          </Button>
+  const renderEditorWorkspace = () => (
+    <div className="flex flex-col h-full bg-background min-h-0 min-w-0">
+      {/* Breadcrumbs Trail & Toggle */}
+      <div className="flex items-center justify-between px-4 py-2 border-b border-border/60 text-[10px] text-muted-foreground/75 bg-card/45 shrink-0 select-none min-w-0 gap-2">
+        <div className="flex items-center gap-1.5 truncate">
+          {activeTab?.split("/").map((part, idx, arr) => (
+            <React.Fragment key={idx}>
+              {idx > 0 && <span className="text-muted-foreground/30 font-mono">/</span>}
+              <span className={idx === arr.length - 1 ? "text-foreground/80 font-medium truncate" : "truncate"}>
+                {part}
+              </span>
+            </React.Fragment>
+          ))}
         </div>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onClose}
-          className="h-8 w-8 text-muted-foreground hover:text-foreground shrink-0 rounded-full"
-          title="Close Slides Panel"
+        {/* Toggle File Explorer Button */}
+        <button
+          onClick={() => setShowTree(prev => !prev)}
+          title={showTree ? "Collapse File Explorer" : "Expand File Explorer"}
+          className="text-muted-foreground/60 hover:text-foreground transition-colors p-[3px] shrink-0 rounded hover:bg-muted"
         >
-          <X className="h-4 w-4" />
-        </Button>
+          {showTree ? <SidebarClose className="h-3.5 w-3.5" /> : <Sidebar className="h-3.5 w-3.5" />}
+        </button>
       </div>
 
-      {/* Main split-pane / content view */}
-      <div className="flex-1 min-h-0 relative">
-        {error && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-destructive bg-background/50 backdrop-blur-sm z-10">
-            <p className="text-sm font-medium">Error Occurred</p>
-            <p className="text-xs opacity-80 mt-1 max-w-md">{error}</p>
-            <Button variant="outline" size="sm" onClick={loadFiles} className="mt-4">
-              Retry Scan
+      {/* Content Area */}
+      <div className="flex-1 min-h-0 relative bg-card/10">
+        {renderContentArea()}
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="flex flex-col h-full bg-background border-l border-border/80 relative">
+      {error && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-destructive bg-background/50 backdrop-blur-sm z-10">
+          <p className="text-sm font-medium">Error Occurred</p>
+          <p className="text-xs opacity-80 mt-1 max-w-md">{error}</p>
+          <Button variant="outline" size="sm" onClick={loadFiles} className="mt-4">
+            Retry Scan
+          </Button>
+        </div>
+      )}
+
+      {isFilesExplorerTab ? (
+        <div className="flex flex-col h-full bg-background min-h-0 min-w-0">
+          {/* Header */}
+          <div className="flex items-center justify-between p-3.5 border-b border-border/80 bg-card/60 shrink-0 select-none">
+            <div className="flex items-center gap-2 min-w-0">
+              <FolderClosed className="h-4 w-4 text-logo shrink-0" />
+              <span className="text-xs font-semibold text-foreground truncate">File Explorer</span>
+              {isLoadingFiles ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-logo shrink-0" />
+              ) : (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={loadFiles}
+                  className="h-7 w-7 text-muted-foreground hover:text-foreground shrink-0 rounded-md"
+                  title="Refresh file list"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
+            
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onClose}
+              className="h-7 w-7 text-muted-foreground hover:text-foreground shrink-0 rounded-md"
+              title="Close Files Panel"
+            >
+              <X className="h-4 w-4" />
             </Button>
           </div>
-        )}
 
-        {showTree ? (
+          {/* Tree View */}
+          <div className="flex-1 min-h-0 overflow-y-auto p-2">
+            <FileTree
+              files={files}
+              selectedPath={null}
+              onSelectFile={handleSelectFile}
+              kannaTheme={resolvedTheme}
+            />
+          </div>
+        </div>
+      ) : (
+        showTree ? (
           <div className="absolute inset-0">
             <ResizablePanelGroup orientation="horizontal" className="min-h-0 min-w-0">
-              <ResizablePanel id="slide-viewer-tree" defaultSize="35%" minSize="15%" maxSize="80%" className="min-h-0 min-w-0">
-                <div className="h-full min-h-0 min-w-0">
+              <ResizablePanel
+                id="slide-viewer-tree"
+                defaultSize="35%"
+                minSize="15%"
+                maxSize="85%"
+                collapsible={true}
+                className="min-h-0 min-w-0"
+              >
+                <div className="h-full min-h-0 min-w-0 border-r border-border/60">
                   <FileTree
                     files={files}
-                    selectedPath={selectedFile}
+                    selectedPath={activeTab}
                     onSelectFile={handleSelectFile}
                     kannaTheme={resolvedTheme}
                   />
@@ -288,18 +345,16 @@ export function MarkdownSlideViewer({
               </ResizablePanel>
               <ResizableHandle orientation="horizontal" withHandle />
               <ResizablePanel id="slide-viewer-content" defaultSize="65%" className="min-h-0 min-w-0">
-                <div className="h-full relative bg-card/10">
-                  {renderContentArea()}
-                </div>
+                {renderEditorWorkspace()}
               </ResizablePanel>
             </ResizablePanelGroup>
           </div>
         ) : (
-          <div className="absolute inset-0">
-            {renderContentArea()}
-          </div>
-        )}
-      </div>
+          renderEditorWorkspace()
+        )
+      )}
     </div>
   )
 }
+
+

@@ -4,7 +4,7 @@ import { WorkflowTrackerPanel } from "@kanna/workflow-tracker"
 import type { WorkflowArtifactRef, WorkflowDefinitionSummary, WorkflowRunProjection, WorkflowNode } from "@kanna/shared/types"
 import type { GroupImperativeHandle } from "react-resizable-panels"
 import { useOutletContext } from "react-router-dom"
-import { ArrowLeft, GitPullRequest, Globe, Layers3, PanelRight, Presentation, Terminal, UserRoundPlus, X } from "lucide-react"
+import { ArrowLeft, FolderOpen, GitPullRequest, Globe, Layers3, PanelRight, Terminal, UserRoundPlus, X, Plus, HelpCircle, FileText, MessageSquare } from "lucide-react"
 import type { ChatInputHandle } from "../../components/chat-ui/ChatInput"
 import { ChatNavbar } from "../../components/chat-ui/ChatNavbar"
 import { BrowserPanel } from "../../components/chat-ui/BrowserPanel"
@@ -384,9 +384,14 @@ const MobileSidebarPane = memo(function MobileSidebarPane({
   )
 })
 
-type RightPanelId = "hidden" | "launcher" | "git" | "browser" | "slides" | "workflow"
+type RightPanelId = "hidden" | "launcher" | "git" | "browser" | "files" | "workflow"
 
 interface RightSidebarShellProps {
+  projectId: string
+  openTabs: string[]
+  activeTab: string | null
+  onSelectTab: (tabId: string) => void
+  onCloseTab: (tabId: string, e: React.MouseEvent) => void
   activePanel: RightPanelId
   additions: number
   deletions: number
@@ -399,13 +404,18 @@ interface RightSidebarShellProps {
   onOpenLauncher: () => void
   onToggleGitPanel: () => void
   onToggleBrowserPanel: () => void
-  onToggleSlidesPanel: () => void
+  onToggleFilesPanel: () => void
   onToggleWorkflowPanel: () => void
   onToggleEmbeddedTerminal: () => void
   onShareChat?: () => void
 }
 
 const RightSidebarShell = memo(function RightSidebarShell({
+  projectId,
+  openTabs,
+  activeTab,
+  onSelectTab,
+  onCloseTab,
   activePanel,
   additions,
   deletions,
@@ -418,11 +428,67 @@ const RightSidebarShell = memo(function RightSidebarShell({
   onOpenLauncher,
   onToggleGitPanel,
   onToggleBrowserPanel,
-  onToggleSlidesPanel,
+  onToggleFilesPanel,
   onToggleWorkflowPanel,
   onToggleEmbeddedTerminal,
   onShareChat,
 }: RightSidebarShellProps) {
+  const [dropdownOpen, setDropdownOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setDropdownOpen(false)
+      }
+    }
+    if (dropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside)
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [dropdownOpen])
+
+  const menuItems = [
+    { id: "files", label: "Files", icon: FolderOpen, shortcut: "⌥P" },
+    { id: "side-chat", label: "Side chat", icon: MessageSquare, shortcut: "" },
+    { id: "browser", label: "Browser", icon: Globe, shortcut: "⌥T" },
+    { id: "git", label: "Review", icon: GitPullRequest, shortcut: "⌥⇧G" },
+    { id: "terminal", label: "Terminal", icon: Terminal, shortcut: "⌥`" },
+    { id: "workflow", label: "Workflow", icon: Layers3, shortcut: "" },
+  ]
+
+  function getTabInfo(tabId: string) {
+    if (tabId.startsWith("tool:")) {
+      const toolId = tabId.slice(5)
+      switch (toolId) {
+        case "files":
+          return { label: "Files", icon: FolderOpen, meta: null }
+        case "browser":
+          return { label: "Browser", icon: Globe, meta: null }
+        case "workflow":
+          return { label: "Workflow", icon: Layers3, meta: null }
+        case "git":
+          return {
+            label: "Review",
+            icon: GitPullRequest,
+            meta: additions > 0 || deletions > 0 ? (
+              <span className="flex items-center gap-1 text-[10px] ml-1 shrink-0 tabular-nums">
+                {additions > 0 ? <span className="text-emerald-500 font-semibold">+{additions}</span> : null}
+                {deletions > 0 ? <span className="text-red-500 font-semibold">-{deletions}</span> : null}
+              </span>
+            ) : null
+          }
+        case "terminal":
+          return { label: "Terminal", icon: Terminal, meta: null }
+        default:
+          return { label: toolId, icon: HelpCircle, meta: null }
+      }
+    } else {
+      const fileName = tabId.split("/").pop() || ""
+      return { label: fileName, icon: FileText, meta: null }
+    }
+  }
+
   const featureItems = [
     {
       id: "git",
@@ -440,7 +506,7 @@ const RightSidebarShell = memo(function RightSidebarShell({
     },
     { id: "browser", label: "Browser", description: "Open a website", icon: Globe, onClick: onToggleBrowserPanel, shortcut: null, meta: null },
     { id: "workflow", label: "Workflow", description: "Track workflow progress", icon: Layers3, onClick: onToggleWorkflowPanel, shortcut: null, meta: null },
-    { id: "slides", label: "Slides", description: "View markdown slides", icon: Presentation, onClick: onToggleSlidesPanel, shortcut: null, meta: null },
+    { id: "files", label: "Files", description: "Browse project files", icon: FolderOpen, onClick: onToggleFilesPanel, shortcut: "⌥P", meta: null },
     { id: "terminal", label: "Terminal", description: embeddedTerminalVisible ? "Hide interactive shell" : "Start interactive shell", icon: Terminal, onClick: onToggleEmbeddedTerminal, shortcut: null, meta: null },
     {
       id: "share",
@@ -460,16 +526,6 @@ const RightSidebarShell = memo(function RightSidebarShell({
     shortcut: string | null
     meta: ReactNode
   }>
-
-  const panelTitles: Record<Exclude<RightPanelId, "hidden" | "launcher">, string> = {
-    git: "Review",
-    browser: "Browser",
-    slides: "Slides",
-    workflow: "Workflow",
-  }
-  const detailTitle = activePanel === "git" || activePanel === "browser" || activePanel === "slides" || activePanel === "workflow"
-    ? panelTitles[activePanel]
-    : "Side panel"
 
   const renderFeature = (item: {
     id: string
@@ -521,19 +577,110 @@ const RightSidebarShell = memo(function RightSidebarShell({
     )
   }
 
+  const filteredTabs = openTabs.filter((tabId) => tabId !== "launcher" && tabId !== "tool:launcher")
+
   return (
-    <aside className="flex h-full min-h-0 flex-col border-l border-border bg-background">
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border/70 px-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onOpenLauncher} title="Back to side panel" aria-label="Back to side panel">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div className="truncate text-sm font-semibold text-foreground">{detailTitle}</div>
+    <aside className="flex h-full min-h-0 flex-col border-l border-border bg-background relative">
+      {/* Unified Tab Bar Header */}
+      <div className="flex h-[45px] shrink-0 items-center justify-between border-b border-border/70 bg-card/75 px-2 relative select-none z-50">
+        
+        {/* Scrollable Tabs Container */}
+        <div className="flex items-center gap-0.5 h-full min-w-0 overflow-x-auto scrollbar-none flex-1 pr-1.5">
+          {filteredTabs.map((tabId) => {
+            const isActive = tabId === activeTab
+            const { label, icon: TabIcon, meta: tabMeta } = getTabInfo(tabId)
+            
+            return (
+              <div
+                key={tabId}
+                onClick={() => onSelectTab(tabId)}
+                className={cn(
+                  "flex items-center gap-1.5 px-3.5 h-full text-[11px] cursor-pointer border-t-2 transition-all duration-150 group shrink-0 relative",
+                  isActive
+                    ? "bg-background border-logo text-foreground font-semibold"
+                    : "border-transparent text-muted-foreground/80 hover:text-foreground hover:bg-muted/45"
+                )}
+              >
+                <TabIcon className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate max-w-[90px]">{label}</span>
+                {tabMeta}
+                
+                {/* Close Button */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onCloseTab(tabId, e)
+                  }}
+                  className="p-[2px] rounded hover:bg-muted text-muted-foreground/60 hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity ml-1.5 shrink-0"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            )
+          })}
         </div>
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onClose} title="Close side panel" aria-label="Close side panel">
-          <X className="h-4 w-4" />
-        </Button>
+
+        {/* Plus Button with Custom Dropdown (Placed OUTSIDE the scroll container to prevent Z-index clipping) */}
+        <div className="relative shrink-0 ml-1 mr-1" ref={dropdownRef}>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setDropdownOpen(prev => !prev)}
+            className="h-7 w-7 text-muted-foreground hover:text-foreground rounded-md hover:bg-muted"
+            title="Open tool or file"
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+
+          {dropdownOpen && (
+            <div className="bg-popover/95 backdrop-blur-md border border-border/80 shadow-2xl rounded-lg p-1.5 min-w-[170px] z-[100] absolute right-0 mt-1 flex flex-col gap-0.5">
+              {menuItems.map((item) => {
+                const Icon = item.icon
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      if (item.id === "side-chat") {
+                        alert("Side chat tab is fully integrated with Kanna main panel!")
+                      } else {
+                        onSelectTab(`tool:${item.id}`)
+                      }
+                      setDropdownOpen(false)
+                    }}
+                    className="flex items-center justify-between w-full px-2.5 py-1.5 text-left text-xs text-foreground hover:bg-accent hover:text-accent-foreground rounded-md transition-colors"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span>{item.label}</span>
+                    </span>
+                    {item.shortcut && (
+                      <span className="text-[9px] text-muted-foreground/75 font-mono bg-muted px-1.5 py-0.5 rounded border border-border/20">
+                        {item.shortcut}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Far Right Control Buttons */}
+        <div className="flex items-center gap-1 pl-1 border-l border-border/40 shrink-0">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-muted-foreground hover:text-foreground rounded-md hover:bg-muted"
+            onClick={onClose}
+            title="Close side panel"
+            aria-label="Close side panel"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
+
+      {/* Content Area */}
       <div className="min-h-0 flex-1 overflow-hidden">{content}</div>
     </aside>
   )
@@ -676,6 +823,8 @@ export function ChatPage() {
 
   const toggleRightPanel = useRightSidebarStore((store) => store.togglePanel)
   const hideRightPanel = useRightSidebarStore((store) => store.hidePanel)
+  const openSidebarTab = useRightSidebarStore((store) => store.openSidebarTab)
+  const closeSidebarTab = useRightSidebarStore((store) => store.closeSidebarTab)
   const setRightSidebarSize = useRightSidebarStore((store) => store.setSize)
   const projectUiState = useRightSidebarStore((store) => (projectId ? store.projectUi[projectId] : undefined))
   const setWorkflowDensityMode = useRightSidebarStore((store) => store.setWorkflowDensityMode)
@@ -1198,9 +1347,9 @@ export function ChatPage() {
     toggleRightPanel(projectId, "browser")
   }, [projectId, toggleRightPanel])
 
-  const handleToggleSlidesPanel = useCallback(() => {
+  const handleToggleFilesPanel = useCallback(() => {
     if (!projectId) return
-    toggleRightPanel(projectId, "slides")
+    toggleRightPanel(projectId, "files")
   }, [projectId, toggleRightPanel])
 
   const handleToggleWorkflowPanel = useCallback(() => {
@@ -1450,7 +1599,7 @@ export function ChatPage() {
           rightPanel={activeRightPanel}
           onToggleGitPanel={projectId ? handleToggleRightSidebar : undefined}
           onToggleBrowserPanel={projectId ? handleToggleBrowserPanel : undefined}
-          onToggleSlidesPanel={projectId ? handleToggleSlidesPanel : undefined}
+          onToggleFilesPanel={projectId ? handleToggleFilesPanel : undefined}
           onToggleWorkflowPanel={projectId ? handleToggleWorkflowPanel : undefined}
           onOpenExternal={handleOpenExternal}
           onExportTranscript={state.activeChatId ? () => void state.handleShareChat(state.activeChatId) : undefined}
@@ -1616,8 +1765,26 @@ export function ChatPage() {
   ])
   const rightPanelBodyContent = activeRightPanel === "browser" && projectId
     ? <BrowserPanel projectId={projectId} socket={state.socket} onClose={handleCloseRightSidebar} onRunQuickAction={handleRunQuickAction} />
-    : activeRightPanel === "slides" && projectId
-      ? <MarkdownSlideViewer projectId={projectId} socket={state.socket} onClose={handleCloseRightSidebar} />
+    : activeRightPanel === "files" && projectId
+      ? (
+        <MarkdownSlideViewer
+          projectId={projectId}
+          socket={state.socket}
+          onClose={handleCloseRightSidebar}
+          activeTab={rightSidebarVisibility.activeTab || "tool:files"}
+          openTabs={rightSidebarVisibility.openTabs || ["tool:files"]}
+          onSelectTab={(tabId) => {
+            if (tabId === "tool:terminal") {
+              handleToggleEmbeddedTerminal()
+            } else {
+              openSidebarTab(projectId, tabId)
+            }
+          }}
+          onCloseTab={(tabId, e) => {
+            closeSidebarTab(projectId, tabId)
+          }}
+        />
+      )
       : activeRightPanel === "workflow" && projectId
         ? (
           <WorkflowTrackerPanel
@@ -1661,6 +1828,19 @@ export function ChatPage() {
   }, [state.chatDiffSnapshot?.files])
   const rightPanelContent = projectId && activeRightPanel !== "hidden" ? (
     <RightSidebarShell
+      projectId={projectId}
+      openTabs={rightSidebarVisibility.openTabs || ["tool:files"]}
+      activeTab={rightSidebarVisibility.activeTab || "tool:files"}
+      onSelectTab={(tabId) => {
+        if (tabId === "tool:terminal") {
+          handleToggleEmbeddedTerminal()
+        } else {
+          openSidebarTab(projectId, tabId)
+        }
+      }}
+      onCloseTab={(tabId, e) => {
+        closeSidebarTab(projectId, tabId)
+      }}
       activePanel={activeRightPanel}
       additions={diffTotals.additions}
       deletions={diffTotals.deletions}
@@ -1673,7 +1853,7 @@ export function ChatPage() {
       onOpenLauncher={handleOpenRightSidebarLauncher}
       onToggleGitPanel={handleToggleGitPanel}
       onToggleBrowserPanel={handleToggleBrowserPanel}
-      onToggleSlidesPanel={handleToggleSlidesPanel}
+      onToggleFilesPanel={handleToggleFilesPanel}
       onToggleWorkflowPanel={handleToggleWorkflowPanel}
       onToggleEmbeddedTerminal={handleToggleEmbeddedTerminal}
       onShareChat={state.activeChatId ? () => void state.handleShareChat(state.activeChatId) : undefined}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react"
 import { TreeNode } from "../types"
 import { buildTree, TreeEntry } from "../utils/treeBuilder"
-import { Folder, FolderOpen, FileText, ChevronRight, ChevronDown, Search } from "lucide-react"
+import { Folder, FolderOpen, FileText, ChevronRight, ChevronDown, Search, FolderClosed, FolderMinus } from "lucide-react"
 
 interface FileTreeProps {
   files: string[] | TreeEntry[];
@@ -173,8 +173,8 @@ export const FileTree: React.FC<FileTreeProps> = ({
   return (
     <div className="flex flex-col h-full bg-background border-r border-border/80">
       {/* Search Header */}
-      <div className="p-3 border-b border-border/60">
-        <div className="relative flex items-center">
+      <div className="p-3 border-b border-border/60 flex items-center gap-2">
+        <div className="relative flex-1 flex items-center">
           <Search 
             className="absolute h-3.5 w-3.5 text-muted-foreground/75 pointer-events-none" 
             style={{ left: "0.625rem" }} 
@@ -188,6 +188,13 @@ export const FileTree: React.FC<FileTreeProps> = ({
             style={{ paddingLeft: "2rem" }}
           />
         </div>
+        <button
+          onClick={() => setExpandedNodes({})}
+          title="Collapse all folders"
+          className="p-1.5 rounded-md hover:bg-muted text-muted-foreground/80 hover:text-foreground transition-colors shrink-0 border border-border/40 bg-muted/20"
+        >
+          <FolderMinus className="h-3.5 w-3.5" />
+        </button>
       </div>
 
       {/* Tree list */}

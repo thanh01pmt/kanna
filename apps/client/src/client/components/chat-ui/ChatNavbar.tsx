@@ -98,10 +98,10 @@ interface Props {
   localPath?: string
   embeddedTerminalVisible?: boolean
   onToggleEmbeddedTerminal?: () => void
-  rightPanel?: "hidden" | "launcher" | "git" | "browser" | "slides" | "workflow"
+  rightPanel?: "hidden" | "launcher" | "git" | "browser" | "files" | "workflow"
   onToggleGitPanel?: () => void
   onToggleBrowserPanel?: () => void
-  onToggleSlidesPanel?: () => void
+  onToggleFilesPanel?: () => void
   onToggleWorkflowPanel?: () => void
   onOpenExternal?: (action: OpenExternalAction, editor?: EditorOpenSettings) => void
   onExportTranscript?: () => void
@@ -128,7 +128,7 @@ export function ChatNavbar({
   rightPanel = "hidden",
   onToggleGitPanel,
   onToggleBrowserPanel,
-  onToggleSlidesPanel,
+  onToggleFilesPanel,
   onToggleWorkflowPanel,
   onOpenExternal,
   onExportTranscript,
@@ -149,7 +149,7 @@ export function ChatNavbar({
     rightPanel === "launcher" ? onToggleGitPanel :
     rightPanel === "browser" ? onToggleBrowserPanel :
     rightPanel === "git" ? onToggleGitPanel :
-    rightPanel === "slides" ? onToggleSlidesPanel :
+    rightPanel === "files" ? onToggleFilesPanel :
     rightPanel === "workflow" ? onToggleWorkflowPanel :
     undefined
 
