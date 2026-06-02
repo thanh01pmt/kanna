@@ -3801,15 +3801,15 @@ export class SupabaseWorkflowRuntimeStore implements WorkflowRuntimeStore {
 
     const { data: defsData, error: defsError } = await this.client
       .from("workflow_pack_definitions")
-      .select("pack_id, workflow_definition_id, recommended_version_id, is_default_entrypoint")
+      .select("workflow_pack_id, workflow_definition_id, version_id, is_default_entrypoint")
     if (defsError) throw new Error(defsError.message)
 
     return (packsData as any[]).map(pack => {
       const defs = (defsData as any[])
-        .filter(d => d.pack_id === pack.id)
+        .filter(d => d.workflow_pack_id === pack.id)
         .map(d => ({
           workflowDefinitionId: d.workflow_definition_id,
-          versionId: d.recommended_version_id,
+          versionId: d.version_id,
           isDefaultEntrypoint: d.is_default_entrypoint
         }))
       return {
@@ -3825,8 +3825,8 @@ export class SupabaseWorkflowRuntimeStore implements WorkflowRuntimeStore {
   async registerPack(args: { projectId: string; packId: string }): Promise<void> {
     const { data: defsData, error: defsError } = await this.client
       .from("workflow_pack_definitions")
-      .select("workflow_definition_id, recommended_version_id, is_default_entrypoint")
-      .eq("pack_id", args.packId)
+      .select("workflow_definition_id, version_id, is_default_entrypoint")
+      .eq("workflow_pack_id", args.packId)
     if (defsError) throw new Error(defsError.message)
 
     for (const wdef of (defsData as any[])) {
@@ -3843,7 +3843,7 @@ export class SupabaseWorkflowRuntimeStore implements WorkflowRuntimeStore {
         .insert({
           project_id: args.projectId,
           workflow_definition_id: wdef.workflow_definition_id,
-          workflow_version_id: wdef.recommended_version_id,
+          workflow_version_id: wdef.version_id,
           is_default_entrypoint: wdef.is_default_entrypoint,
           pack_id: args.packId,
           enabled: true,

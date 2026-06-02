@@ -307,6 +307,12 @@ export class AntigravityAppServerManager {
     }
 
     session.child = this.spawnProcess(session.cwd, cliArgs)
+    if (process.env.KANNA_ANTIGRAVITY_TRANSPORT !== "sdk") {
+      // CLI mode hangs on an open stdin because it tries to read piped context.
+      // We must close it immediately. Note: This breaks interactive permissions,
+      // so --dangerously-skip-permissions MUST be passed.
+      session.child.stdin.end()
+    }
     this.attachListeners(session)
     this.scheduleHardTimeout(session)
 
@@ -501,22 +507,35 @@ export class AntigravityAppServerManager {
   }
 
   private handleRawChunkBuffer(session: ActiveSession, buffer: string, source: "stdout" | "stderr") {
+    // Attempt to parse as JSON lines first (for SDK bridge)
     const parts = buffer.split(/\r?\n|\r/g)
     const trailing = parts.pop() ?? ""
+    
+    let hasJson = false
     for (const part of parts) {
       const record = parseJsonLine(part)
       if (record) {
+        hasJson = true
         this.handleLine(session, record)
-      } else {
+      } else if (part) {
         this.handleRawOutput(session, part, source)
       }
     }
+    
+    // If we've never seen JSON and this is CLI stdout (which drips text without newlines),
+    // we should flush the trailing text immediately to the UI instead of buffering it.
+    if (!hasJson && source === "stdout" && trailing) {
+      this.handleRawOutput(session, trailing, source)
+      return "" // Clear trailing since we just flushed it
+    }
+    
     return trailing
   }
 
   private async handleRawOutput(session: ActiveSession, line: string, source: "stdout" | "stderr") {
     const pendingTurn = session.pendingTurn
     if (!pendingTurn || pendingTurn.resolved || pendingTurn.permissionInFlight) return
+
 
     const trimmed = line.trim()
     if (!trimmed) return
