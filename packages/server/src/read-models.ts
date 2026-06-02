@@ -153,8 +153,18 @@ export function deriveLocalProjectsSnapshot(
 ): LocalProjectsSnapshot {
   const projects = new Map<string, LocalProjectsSnapshot["projects"][number]>()
 
+  const deletedPaths = new Set<string>()
+  for (const project of state.projectsById.values()) {
+    if (project.deletedAt) {
+      deletedPaths.add(resolveLocalPath(project.localPath))
+    }
+  }
+
   for (const project of discoveredProjects) {
     const normalizedPath = resolveLocalPath(project.localPath)
+    if (deletedPaths.has(normalizedPath)) {
+      continue
+    }
     projects.set(normalizedPath, {
       localPath: normalizedPath,
       title: project.title,
@@ -172,6 +182,7 @@ export function deriveLocalProjectsSnapshot(
     )
 
     projects.set(project.localPath, {
+      id: project.id,
       localPath: project.localPath,
       title: project.title,
       source: "saved",

@@ -11,6 +11,7 @@ import {
   Plus,
   SquarePen,
   Terminal,
+  Trash2,
 } from "lucide-react"
 import { APP_NAME, getCliInvocation, SDK_CLIENT_APP } from "@kanna/shared/branding"
 import type { LocalProjectsSnapshot } from "@kanna/shared/types"
@@ -32,6 +33,7 @@ interface LocalDevProps {
   onNewProjectOpenChange: (open: boolean) => void
   onOpenProject: (localPath: string) => Promise<void>
   onCreateProject: (project: { mode: "new" | "existing"; localPath: string; title: string }) => Promise<void>
+  onHideProject?: (projectId: string | undefined, localPath: string) => Promise<void>
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -128,35 +130,62 @@ function Step({
 }
 
 function ProjectCard({
+  id,
   localPath,
   loading,
   onClick,
+  onDelete,
 }: {
+  id?: string
   localPath: string
   loading: boolean
   onClick: () => void
+  onDelete?: () => void
 }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
+        <div
           className={cn(
-            "border border-border hover:border-primary/30 group rounded-lg bg-card px-4 py-3 flex items-center gap-3 w-full text-left hover:bg-muted/50 transition-colors",
+            "border border-border hover:border-primary/30 group rounded-lg bg-card px-4 py-3 flex items-center gap-3 w-full hover:bg-muted/50 transition-colors relative cursor-pointer",
             loading && "opacity-50 cursor-not-allowed"
           )}
-          disabled={loading}
-          onClick={onClick}
+          onClick={(e) => {
+            if (loading) return
+            onClick()
+          }}
         >
           <Folder className="h-4 w-4 text-muted-foreground flex-shrink-0" />
           <span className="font-medium text-foreground truncate flex-1">
             {getPathBasename(localPath)}
           </span>
-          {loading ? (
-            <Loader2 className="h-4 w-4 text-muted-foreground group-hover:text-primary animate-spin flex-shrink-0" />
-          ) : (
-            <SquarePen className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
-          )}
-        </button>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            {loading ? (
+              <Loader2 className="h-4 w-4 text-muted-foreground group-hover:text-primary animate-spin" />
+            ) : (
+              <>
+                <div
+                  className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-accent text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-all"
+                  title="Open Project"
+                >
+                  <SquarePen className="h-4 w-4" />
+                </div>
+                {onDelete ? (
+                  <button
+                    className="h-7 w-7 flex items-center justify-center rounded-md hover:bg-destructive/15 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-all z-10"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onDelete()
+                    }}
+                    title="Remove Project"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                ) : null}
+              </>
+            )}
+          </div>
+        </div>
       </TooltipTrigger>
       <TooltipContent>
         <p>{localPath}</p>
@@ -175,6 +204,7 @@ export function LocalDev({
   onNewProjectOpenChange,
   onOpenProject,
   onCreateProject,
+  onHideProject,
 }: LocalDevProps) {
   const projects = useMemo(() => snapshot?.projects ?? [], [snapshot?.projects])
   const isConnecting = connectionStatus === "connecting" || !ready
@@ -280,11 +310,19 @@ export function LocalDev({
                 {projects.map((project) => (
                   <ProjectCard
                     key={project.localPath}
+                    id={project.id}
                     localPath={project.localPath}
                     loading={startingLocalPath === project.localPath}
                     onClick={() => {
                       void onOpenProject(project.localPath)
                     }}
+                    onDelete={
+                      onHideProject
+                        ? () => {
+                            void onHideProject(project.id, project.localPath)
+                          }
+                        : undefined
+                    }
                   />
                 ))}
               </div>

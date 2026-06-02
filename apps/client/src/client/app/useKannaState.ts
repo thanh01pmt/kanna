@@ -699,7 +699,7 @@ export interface KannaState {
   handleArchiveChat: (chat: SidebarChatRow) => Promise<void>
   handleOpenArchivedChat: (chatId: string) => Promise<void>
   handleDeleteChat: (chat: SidebarChatRow) => Promise<void>
-  handleHideProject: (projectId: string) => Promise<void>
+  handleHideProject: (projectId: string | undefined, localPath: string) => Promise<void>
   handleReorderProjectGroups: (projectIds: string[]) => Promise<void>
   handleCopyPath: (localPath: string) => Promise<void>
   handleOpenExternal: (action: OpenExternalAction, editor?: EditorOpenSettings) => Promise<void>
@@ -1768,19 +1768,43 @@ export function useKannaState(activeChatId: string | null): KannaState {
     }
   }, [navigate, socket])
 
-  const handleHideProject = useCallback(async (projectId: string) => {
+  const handleHideProject = useCallback(async (projectId: string | undefined, localPath: string) => {
+    const group = sidebarData.projectGroups.find((g) => g.groupKey === projectId || g.groupKey === localPath)
+    const localProject = localProjects?.projects.find((p) => p.id === projectId || p.localPath === localPath)
+    const title = group?.realTitle || group?.title || localProject?.title || localPath.split(/[/\\]/).pop() || localPath
+    const confirmedRemove = await dialog.confirm({
+      title: "Remove Project",
+      description: `Are you sure you want to remove "${title}"? This will remove it from Kanna's workspace, but will not delete the project files on your computer.`,
+      confirmLabel: "Remove",
+      confirmVariant: "destructive",
+    })
+    if (!confirmedRemove) return
+
+    const hasHistory = localProject && localProject.chatCount > 0
+    const deleteHistory = hasHistory
+      ? await dialog.confirm({
+          title: "Delete Chat History?",
+          description: `Would you also like to permanently delete all Kanna chat history associated with "${title}"?`,
+          confirmLabel: "Delete History",
+          cancelLabel: "Keep History",
+          confirmVariant: "destructive",
+        })
+      : false
+
     try {
-      await socket.command({ type: "project.remove", projectId })
-      useTerminalLayoutStore.getState().clearProject(projectId)
-      useRightSidebarStore.getState().clearProject(projectId)
-      if (runtime?.projectId === projectId) {
-        navigate("/")
+      await socket.command({ type: "project.remove", projectId, localPath, deleteHistory })
+      if (projectId) {
+        useTerminalLayoutStore.getState().clearProject(projectId)
+        useRightSidebarStore.getState().clearProject(projectId)
+        if (runtime?.projectId === projectId) {
+          navigate("/")
+        }
       }
       setCommandError(null)
     } catch (error) {
       setCommandError(error instanceof Error ? error.message : String(error))
     }
-  }, [navigate, runtime?.projectId, socket])
+  }, [dialog, navigate, runtime?.projectId, sidebarData.projectGroups, localProjects?.projects, socket])
 
   const handleReorderProjectGroups = useCallback(async (projectIds: string[]) => {
     setOptimisticSidebarProjectOrder(projectIds)

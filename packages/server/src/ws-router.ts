@@ -1946,7 +1946,21 @@ export function createWsRouter({
           return
         }
         case "project.remove": {
-          await store.removeProject(command.projectId)
+          let projectId = command.projectId
+          if (!projectId && command.localPath) {
+            const project = await store.openProject(command.localPath)
+            projectId = project.id
+          }
+          if (projectId) {
+            if (command.deleteHistory) {
+              const projectChats = [...store.state.chatsById.values()]
+                .filter((chat) => chat.projectId === projectId && !chat.deletedAt)
+              for (const chat of projectChats) {
+                await store.deleteChat(chat.id)
+              }
+            }
+            await store.removeProject(projectId)
+          }
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id })
           resolvedAnalytics.track("project_removed")
           break

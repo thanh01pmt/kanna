@@ -490,6 +490,7 @@ export interface SidebarData {
 }
 
 export interface LocalProjectSummary {
+  id?: string
   localPath: string
   title: string
   source: "saved" | "discovered"

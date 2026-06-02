@@ -23,6 +23,7 @@ export function LocalProjectsPage() {
         }}
         onOpenProject={state.handleOpenLocalProject}
         onCreateProject={state.handleCreateProject}
+        onHideProject={state.handleHideProject}
       />
     </div>
   )
