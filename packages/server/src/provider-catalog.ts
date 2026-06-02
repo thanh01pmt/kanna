@@ -17,6 +17,7 @@ import {
   DEFAULT_PI_MODEL_OPTIONS,
   PROVIDERS,
   normalizeClaudeContextWindow,
+  normalizePiModelId,
   normalizeProviderModelId,
   isAntigravityReasoningEffort,
   isClaudeReasoningEffort,
@@ -50,6 +51,9 @@ export function getServerProviderCatalog(provider: AgentProvider): ProviderCatal
 }
 
 export function normalizeServerModel(provider: AgentProvider, model?: string): string {
+  if (provider === "pi") {
+    return normalizePiModelId(model)
+  }
   const catalog = getServerProviderCatalog(provider)
   const normalizedModel = normalizeProviderModelId(provider, model, catalog.defaultModel)
   if (catalog.models.some((candidate) => candidate.id === normalizedModel)) {

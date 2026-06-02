@@ -73,8 +73,19 @@ async function collectStream(stream: AsyncIterable<any>) {
 describe("PiSdkAppServerManager", () => {
   test("maps SDK events into Kanna harness transcript entries", async () => {
     const fakeSession = new FakePiSdkSession()
+    const fakeModel = {
+      provider: "openai-codex",
+      id: "gpt-5.5",
+      name: "GPT-5.5",
+    }
     const createCalls: any[] = []
     const manager = new PiSdkAppServerManager({
+      modelRegistry: {
+        refresh: () => {},
+        getAll: () => [fakeModel],
+        find: (provider: string, modelId: string) =>
+          provider === fakeModel.provider && modelId === fakeModel.id ? fakeModel : undefined,
+      } as never,
       createSession: async (options) => {
         createCalls.push(options)
         return {
@@ -102,6 +113,7 @@ describe("PiSdkAppServerManager", () => {
     expect(createCalls[0]).toMatchObject({
       cwd: "/tmp/project",
       thinkingLevel: "high",
+      model: fakeModel,
     })
     expect(fakeSession.prompts).toEqual(["Run SDK smoke."])
     expect(events.map((event) => event.entry?.kind)).toEqual([
@@ -124,6 +136,11 @@ describe("PiSdkAppServerManager", () => {
       fakeSession.prompts.push(text)
     }
     const manager = new PiSdkAppServerManager({
+      modelRegistry: {
+        refresh: () => {},
+        getAll: () => [],
+        find: () => undefined,
+      } as never,
       createSession: async () => ({
         session: fakeSession as never,
         extensionsResult: {} as never,

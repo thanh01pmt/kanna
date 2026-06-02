@@ -16,6 +16,7 @@ import {
   normalizeClaudeContextWindow,
   normalizeClaudeModelId,
   normalizeCodexModelId,
+  normalizePiModelId,
   normalizeProviderModelId,
   supportsClaudeMaxReasoningEffort,
   type AppSettingsPatch,
@@ -253,7 +254,7 @@ function normalizePiPreference(value?: {
 }): ProviderPreference<PiModelOptions> {
   const reasoningEffort = value?.modelOptions?.reasoningEffort
   return {
-    model: normalizeProviderModelId("pi", typeof value?.model === "string" ? value.model : undefined),
+    model: normalizePiModelId(typeof value?.model === "string" ? value.model : undefined),
     modelOptions: {
       reasoningEffort: isPiReasoningEffort(reasoningEffort)
         ? reasoningEffort

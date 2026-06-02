@@ -175,6 +175,7 @@ export function ChatPreferenceControls({
   includePlanMode = true,
   className,
 }: ChatPreferenceControlsProps) {
+  const [customModelDraft, setCustomModelDraft] = useState(model)
   const providerConfig = availableProviders.find((provider) => provider.id === selectedProvider) ?? availableProviders[0]
   const ProviderIcon = PROVIDER_ICONS[selectedProvider]
   const ModelIcon = Box
@@ -223,32 +224,68 @@ export function ChatPreferenceControls({
           </>
         )}
       >
-        {(close) => providerConfig.models.map((candidate) => {
-          const Icon = Box
-          return (
-            <PopoverMenuItem
-              key={candidate.id}
-              onClick={() => {
-                onModelChange(selectedProvider, candidate.id)
-                close()
-              }}
-              selected={model === candidate.id}
-              icon={<Icon className="h-4 w-4 text-muted-foreground" />}
-              label={
-                showCodexCliRequirementHints && selectedProvider === "codex" && candidate.id === "gpt-5.5"
-                  ? (
-                    <>
-                      {candidate.label}{" "}
-                      <span className="text-xs font-normal text-muted-foreground">
-                        codex-cli &gt;= 0.124
-                      </span>
-                    </>
-                  )
-                  : candidate.label
-              }
-            />
-          )
-        })}
+        {(close) => (
+          <>
+            {providerConfig.models.map((candidate) => {
+              const Icon = Box
+              return (
+                <PopoverMenuItem
+                  key={candidate.id}
+                  onClick={() => {
+                    onModelChange(selectedProvider, candidate.id)
+                    setCustomModelDraft(candidate.id)
+                    close()
+                  }}
+                  selected={model === candidate.id}
+                  icon={<Icon className="h-4 w-4 text-muted-foreground" />}
+                  label={
+                    showCodexCliRequirementHints && selectedProvider === "codex" && candidate.id === "gpt-5.5"
+                      ? (
+                        <>
+                          {candidate.label}{" "}
+                          <span className="text-xs font-normal text-muted-foreground">
+                            codex-cli &gt;= 0.124
+                          </span>
+                        </>
+                      )
+                      : candidate.label
+                  }
+                />
+              )
+            })}
+            {selectedProvider === "pi" ? (
+              <form
+                className="border-t border-border/60 p-2"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  const nextModel = customModelDraft.trim()
+                  if (!nextModel) return
+                  onModelChange(selectedProvider, nextModel)
+                  close()
+                }}
+              >
+                <label className="block text-xs font-medium text-muted-foreground" htmlFor="pi-custom-model">
+                  Custom model
+                </label>
+                <div className="mt-1 flex gap-2">
+                  <input
+                    id="pi-custom-model"
+                    value={customModelDraft}
+                    onChange={(event) => setCustomModelDraft(event.currentTarget.value)}
+                    placeholder="provider/model-id"
+                    className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-ring"
+                  />
+                  <button
+                    type="submit"
+                    className="rounded-md border border-border px-2 py-1.5 text-sm text-foreground hover:bg-muted/50"
+                  >
+                    Set
+                  </button>
+                </div>
+              </form>
+            ) : null}
+          </>
+        )}
       </InputPopover>
 
       <InputPopover

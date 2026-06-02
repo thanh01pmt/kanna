@@ -404,6 +404,25 @@ describe("chat preference store", () => {
     })
   })
 
+  test("syncProviderDefaults preserves custom Pi model ids", () => {
+    useChatPreferencesStore.getState().syncProviderDefaults("pi", {
+      ...INITIAL_STATE.providerDefaults,
+      pi: {
+        model: "openai-codex/gpt-5.5",
+        modelOptions: { reasoningEffort: "high" },
+        planMode: false,
+      },
+    })
+
+    expect(useChatPreferencesStore.getState().providerDefaults.pi.model).toBe("openai-codex/gpt-5.5")
+    expect(useChatPreferencesStore.getState().getComposerState(NEW_CHAT_COMPOSER_ID)).toEqual({
+      provider: "pi",
+      model: "openai-codex/gpt-5.5",
+      modelOptions: { reasoningEffort: "high" },
+      planMode: false,
+    })
+  })
+
   test("initializeComposerForChat with last_used copies the provided source state", () => {
     useChatPreferencesStore.setState({
       ...INITIAL_STATE,

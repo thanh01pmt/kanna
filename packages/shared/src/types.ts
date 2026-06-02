@@ -397,6 +397,11 @@ export function normalizeCodexModelId(modelId?: string, fallbackModelId = "gpt-5
   return normalizeProviderModelId("codex", modelId, fallbackModelId)
 }
 
+export function normalizePiModelId(modelId?: string, fallbackModelId = "gpt-5.5"): string {
+  const trimmed = typeof modelId === "string" ? modelId.trim() : ""
+  return trimmed || fallbackModelId
+}
+
 export function getProviderModelOption(provider: AgentProvider, modelId: string): ProviderModelOption | undefined {
   const normalizedModelId = normalizeProviderModelId(provider, modelId)
   return getProviderCatalog(provider).models.find((candidate) => candidate.id === normalizedModelId)

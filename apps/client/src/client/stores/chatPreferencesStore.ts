@@ -7,6 +7,7 @@ import {
   normalizeClaudeContextWindow,
   normalizeClaudeModelId,
   normalizeCodexModelId,
+  normalizePiModelId,
   normalizeProviderModelId,
   isClaudeReasoningEffort,
   isCodexReasoningEffort,
@@ -228,7 +229,7 @@ export function normalizePiPreference(value?: {
 }): ProviderPreference<PiModelOptions> {
   const reasoningEffort = value?.modelOptions?.reasoningEffort
   return {
-    model: normalizeProviderModelId("pi", value?.model),
+    model: normalizePiModelId(value?.model),
     modelOptions: {
       reasoningEffort: isPiReasoningEffort(reasoningEffort)
         ? reasoningEffort

@@ -20,7 +20,7 @@ describe("ChatPreferenceControls", () => {
 
     expect(html).toContain("Codex")
     expect(html).toContain("GPT-5.3 Codex")
-    expect(html).toContain("XHigh")
+    expect(html).toContain("xhigh")
     expect(html).toContain("Fast Mode")
     expect(html).not.toContain("Plan Mode")
   })
@@ -46,5 +46,21 @@ describe("ChatPreferenceControls", () => {
     expect(html).toContain("Max")
     expect(html).toContain("1M")
     expect(html).toContain("Plan Mode")
+  })
+
+  test("renders custom Pi model label", () => {
+    const html = renderToStaticMarkup(
+      <ChatPreferenceControls
+        availableProviders={PROVIDERS}
+        selectedProvider="pi"
+        model="openai-codex/gpt-5.5"
+        modelOptions={{ reasoningEffort: "high" }}
+        onProviderChange={() => {}}
+        onModelChange={() => {}}
+        onModelOptionChange={() => {}}
+      />
+    )
+
+    expect(html).toContain("openai-codex/gpt-5.5")
   })
 })

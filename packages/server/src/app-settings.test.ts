@@ -154,7 +154,7 @@ describe("AppSettingsManager", () => {
           modelOptions: { reasoningEffort: "medium" },
         },
         pi: {
-          model: "gpt-5.3-codex",
+          model: "openai-codex/gpt-5.3-codex",
           modelOptions: { reasoningEffort: "xhigh" },
         },
       },
@@ -185,7 +185,7 @@ describe("AppSettingsManager", () => {
       planMode: false,
     })
     expect(snapshot.providerDefaults.pi).toEqual({
-      model: "gpt-5.3-codex",
+      model: "openai-codex/gpt-5.3-codex",
       modelOptions: { reasoningEffort: "xhigh" },
       planMode: false,
     })
@@ -193,6 +193,7 @@ describe("AppSettingsManager", () => {
     expect(nextPayload.theme).toBe("dark")
     expect(nextPayload.chatSoundId).toBe("glass")
     expect(nextPayload.providerDefaults.antigravity.model).toBe("gemini-2.5-flash")
+    expect(nextPayload.providerDefaults.pi.model).toBe("openai-codex/gpt-5.3-codex")
     expect(nextPayload.providerDefaults.pi.modelOptions.reasoningEffort).toBe("xhigh")
 
     manager.dispose()

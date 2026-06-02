@@ -7,7 +7,10 @@
  */
 
 import {
+  AuthStorage,
   createAgentSession,
+  getAgentDir,
+  ModelRegistry,
   SessionManager,
   type AgentSession,
   type AgentSessionEvent,
@@ -15,15 +18,18 @@ import {
   type CreateAgentSessionResult,
 } from "@earendil-works/pi-coding-agent"
 import { randomUUID } from "node:crypto"
+import { join } from "node:path"
 import type { NormalizedToolCall, PiReasoningEffort, TranscriptEntry } from "@kanna/shared/types"
 import { normalizeToolCall } from "@kanna/shared/tools"
 import type { HarnessEvent, HarnessToolRequest, HarnessTurn } from "./harness-types"
 
 type CreatePiAgentSession = (options?: CreateAgentSessionOptions) => Promise<CreateAgentSessionResult>
+type PiSdkModel = NonNullable<CreateAgentSessionOptions["model"]>
 
 interface ActiveSdkSession {
   chatId: string
   cwd: string
+  requestedModel: string
   model: string
   effort?: PiReasoningEffort
   session: AgentSession
@@ -161,22 +167,38 @@ export interface StartPiSdkTurnArgs {
 export class PiSdkAppServerManager {
   private readonly sessions = new Map<string, ActiveSdkSession>()
   private readonly createSession: CreatePiAgentSession
+  private readonly agentDir: string
+  private readonly authStorage?: AuthStorage
+  private modelRegistry?: ModelRegistry
 
-  constructor(args: { createSession?: CreatePiAgentSession } = {}) {
+  constructor(args: {
+    createSession?: CreatePiAgentSession
+    agentDir?: string
+    authStorage?: AuthStorage
+    modelRegistry?: ModelRegistry
+  } = {}) {
     this.createSession = args.createSession ?? createAgentSession
+    this.agentDir = args.agentDir ?? getAgentDir()
+    this.authStorage = args.authStorage
+    this.modelRegistry = args.modelRegistry
   }
 
   async startSession(args: StartPiSdkSessionArgs): Promise<void> {
     const existing = this.sessions.get(args.chatId)
-    if (existing && !existing.closed && existing.cwd === args.cwd) {
+    if (existing && !existing.closed && existing.cwd === args.cwd && existing.requestedModel === args.model && existing.effort === args.effort) {
       return
     }
     if (existing) {
       this.stopSession(args.chatId)
     }
 
+    const modelRegistry = this.getModelRegistry()
+    const resolvedModel = this.resolveModel(args.model, modelRegistry)
     const result = await this.createSession({
       cwd: args.cwd,
+      agentDir: this.agentDir,
+      modelRegistry,
+      ...(resolvedModel ? { model: resolvedModel } : {}),
       sessionManager: args.sessionToken
         ? SessionManager.open(args.sessionToken)
         : SessionManager.create(args.cwd),
@@ -185,7 +207,8 @@ export class PiSdkAppServerManager {
     const active: ActiveSdkSession = {
       chatId: args.chatId,
       cwd: args.cwd,
-      model: args.model,
+      requestedModel: args.model,
+      model: resolvedModel ? `${resolvedModel.provider}/${resolvedModel.id}` : args.model,
       effort: args.effort,
       session: result.session,
       unsubscribe: null,
@@ -203,7 +226,7 @@ export class PiSdkAppServerManager {
     }
 
     const queue = new AsyncQueue<HarnessEvent>()
-    queue.push({ type: "transcript", entry: piSystemInitEntry(args.model) })
+    queue.push({ type: "transcript", entry: piSystemInitEntry(session.model) })
     const pendingTurn: PendingSdkTurn = {
       queue,
       resolved: false,
@@ -257,6 +280,56 @@ export class PiSdkAppServerManager {
       throw new Error("Pi SDK session not started")
     }
     return session
+  }
+
+  private getModelRegistry() {
+    if (!this.modelRegistry) {
+      const authStorage = this.authStorage ?? AuthStorage.create(join(this.agentDir, "auth.json"))
+      this.modelRegistry = ModelRegistry.create(authStorage, join(this.agentDir, "models.json"))
+    } else {
+      this.modelRegistry.refresh()
+    }
+    return this.modelRegistry
+  }
+
+  private resolveModel(modelId: string, modelRegistry: ModelRegistry): PiSdkModel | undefined {
+    const requested = modelId.trim()
+    if (!requested) return undefined
+
+    const slashIndex = requested.indexOf("/")
+    if (slashIndex > 0) {
+      const provider = requested.slice(0, slashIndex)
+      const id = requested.slice(slashIndex + 1)
+      const exactProviderModel = modelRegistry.find(provider, id)
+      if (exactProviderModel) return exactProviderModel
+    }
+
+    const allModels = modelRegistry.getAll()
+    const exactMatches = allModels.filter((candidate) => candidate.id === requested || `${candidate.provider}/${candidate.id}` === requested)
+    if (exactMatches.length === 1) return exactMatches[0]
+    if (exactMatches.length > 1) {
+      const preferredProviders = [
+        "openai-codex",
+        "openai",
+        "github-copilot",
+        "opencode",
+        "azure-openai-responses",
+        "cloudflare-ai-gateway",
+      ]
+      for (const provider of preferredProviders) {
+        const preferred = exactMatches.find((candidate) => candidate.provider === provider)
+        if (preferred) return preferred
+      }
+      return exactMatches[0]
+    }
+
+    const lower = requested.toLowerCase()
+    const fuzzyMatches = allModels.filter((candidate) =>
+      candidate.id.toLowerCase().includes(lower)
+      || candidate.name.toLowerCase().includes(lower)
+      || `${candidate.provider}/${candidate.id}`.toLowerCase().includes(lower)
+    )
+    return fuzzyMatches[0]
   }
 
   private handleEvent(session: ActiveSdkSession, event: AgentSessionEvent) {
@@ -404,4 +477,3 @@ export class PiSdkAppServerManager {
     session.pendingTurn = null
   }
 }
-
