@@ -262,9 +262,11 @@ describe("AgentCoordinator codex integration", () => {
       chatId: "chat-1",
     })
 
+    let piPromptContent = ""
     const fakePiManager = {
       async startSession() {},
-      async startTurn(): Promise<HarnessTurn> {
+      async startTurn(args: { content: string }): Promise<HarnessTurn> {
+        piPromptContent = args.content
         async function* stream() {
           yield {
             type: "transcript" as const,
@@ -359,6 +361,9 @@ describe("AgentCoordinator codex integration", () => {
     expect(events.map((event) => event.type)).toContain("agent_tool_started")
     expect(events.map((event) => event.type)).toContain("agent_turn_finished")
     expect(workflowBroadcasts.length).toBeGreaterThan(0)
+    expect(piPromptContent).toContain("<kanna-project-context>")
+    expect(piPromptContent).toContain("project_path: /tmp/project")
+    expect(piPromptContent).toContain("project_title: Kanna test project")
   })
 
   test("generates a chat title in the background on the first user message", async () => {
@@ -1756,6 +1761,7 @@ function createFakeStore() {
   const project = {
     id: "project-1",
     localPath: "/tmp/project",
+    title: "Kanna test project",
   }
   return {
     chat,

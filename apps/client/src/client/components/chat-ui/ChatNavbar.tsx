@@ -1,5 +1,5 @@
 import { type MouseEvent as ReactMouseEvent } from "react"
-import { Check, Flower, GitBranch, Globe, Layers3, Loader2, Menu, MoreHorizontal, PanelLeft, PanelRight, Presentation, SquarePen, Terminal, UserRoundPlus } from "lucide-react"
+import { Check, Flower, Loader2, Menu, MoreHorizontal, PanelLeft, PanelRight, SquarePen, Terminal, UserRoundPlus } from "lucide-react"
 import type { EditorOpenSettings, EditorPreset, OpenExternalAction } from "@kanna/shared/protocol"
 import { Button } from "../ui/button"
 import { CardHeader } from "../ui/card"
@@ -98,7 +98,7 @@ interface Props {
   localPath?: string
   embeddedTerminalVisible?: boolean
   onToggleEmbeddedTerminal?: () => void
-  rightPanel?: "hidden" | "git" | "browser" | "slides" | "workflow"
+  rightPanel?: "hidden" | "launcher" | "git" | "browser" | "slides" | "workflow"
   onToggleGitPanel?: () => void
   onToggleBrowserPanel?: () => void
   onToggleSlidesPanel?: () => void
@@ -115,9 +115,6 @@ interface Props {
   editorShortcut?: string[]
   terminalShortcut?: string[]
   rightSidebarShortcut?: string[]
-  branchName?: string
-  hasGitRepo?: boolean
-  gitStatus?: "unknown" | "ready" | "no_repo"
 }
 
 export function ChatNavbar({
@@ -145,27 +142,16 @@ export function ChatNavbar({
   editorShortcut,
   terminalShortcut,
   rightSidebarShortcut,
-  branchName,
-  hasGitRepo = true,
-  gitStatus = "unknown",
 }: Props) {
-  const branchLabel = !hasGitRepo
-    ? "Setup Git"
-    : gitStatus === "unknown"
-      ? null
-      : (branchName ?? "Detached HEAD")
   const isMac = platform === "darwin"
   const rightPanelVisible = rightPanel !== "hidden"
   const handleCloseRightPanel =
+    rightPanel === "launcher" ? onToggleGitPanel :
     rightPanel === "browser" ? onToggleBrowserPanel :
     rightPanel === "git" ? onToggleGitPanel :
     rightPanel === "slides" ? onToggleSlidesPanel :
     rightPanel === "workflow" ? onToggleWorkflowPanel :
     undefined
-  const showBrowserPanelButton = rightPanel === "hidden" || rightPanel === "git" || rightPanel === "slides" || rightPanel === "workflow"
-  const showGitPanelButton = rightPanel === "hidden" || rightPanel === "browser" || rightPanel === "slides" || rightPanel === "workflow"
-  const showSlidesPanelButton = rightPanel === "hidden" || rightPanel === "browser" || rightPanel === "git" || rightPanel === "workflow"
-  const showWorkflowPanelButton = rightPanel === "hidden" || rightPanel === "browser" || rightPanel === "git" || rightPanel === "slides"
 
   return (
     <CardHeader
@@ -279,62 +265,21 @@ export function ChatNavbar({
                     )}
                   </Button>
                 ) : null}
-                {onToggleBrowserPanel && showBrowserPanelButton ? (
-                  <Button
-                    variant="ghost"
-                    size="none"
-                    onClick={onToggleBrowserPanel}
-                    title="Browser"
-                    aria-label="Browser"
-                    className={cn(
-                      "border border-border/0 hover:!border-border/0 px-1.5 h-9 hover:!bg-transparent"
-                    )}
-                  >
-                    <Globe strokeWidth={2.25} className="h-4" />
-                  </Button>
-                ) : null}
-                {onToggleSlidesPanel && showSlidesPanelButton ? (
-                  <Button
-                    variant="ghost"
-                    size="none"
-                    onClick={onToggleSlidesPanel}
-                    title="Slides Presentation"
-                    aria-label="Slides Presentation"
-                    className={cn(
-                      "border border-border/0 hover:!border-border/0 px-1.5 h-9 hover:!bg-transparent"
-                    )}
-                  >
-                    <Presentation strokeWidth={2.25} className="h-4" />
-                  </Button>
-                ) : null}
-                {onToggleWorkflowPanel && showWorkflowPanelButton ? (
-                  <Button
-                    variant="ghost"
-                    size="none"
-                    onClick={onToggleWorkflowPanel}
-                    title="Workflow"
-                    aria-label="Workflow"
-                    className={cn(
-                      "border border-border/0 hover:!border-border/0 px-1.5 h-9 hover:!bg-transparent"
-                    )}
-                  >
-                    <Layers3 strokeWidth={2.25} className="h-4" />
-                  </Button>
-                ) : null}
-                {onToggleGitPanel && showGitPanelButton ? (
+                {onToggleGitPanel ? (
                   <HotkeyTooltip>
                     <HotkeyTooltipTrigger asChild>
                       <Button
                         variant="ghost"
                         size="none"
                         onClick={onToggleGitPanel}
+                        title="Toggle side panel"
+                        aria-label="Toggle side panel"
                         className={cn(
                           "border flex flex-row items-center gap-1.5 h-9 border-border/0 hover:!border-border/0 hover:!bg-transparent",
-                          rightPanelVisible ? "w-[38px] justify-center px-0" : "pl-1.5 pr-2"
+                          rightPanelVisible ? "hidden" : "w-[38px] justify-center px-0"
                         )}
                       >
-                        <GitBranch strokeWidth={2.25} className="h-4" />
-                        {branchLabel && !rightPanelVisible ? <div className="font-[13px] max-w-[140px] truncate hidden md:block">{branchLabel}</div> : null}
+                        <PanelRight strokeWidth={2.25} className="h-4" />
                       </Button>
                     </HotkeyTooltipTrigger>
                     <HotkeyTooltipContent side="bottom" shortcut={rightSidebarShortcut} />

@@ -127,7 +127,7 @@ export function InputPopover({
           {trigger}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="center" className="w-64 p-1">
+      <PopoverContent align="center" className="max-h-[min(70vh,420px)] w-64 overflow-y-auto p-1">
         <div className="space-y-1">{typeof children === "function" ? children(() => setOpen(false)) : children}</div>
       </PopoverContent>
     </Popover>
@@ -141,6 +141,21 @@ export type ModelOptionChange =
   | { type: "fastMode"; fastMode: boolean }
   | { type: "antigravityReasoningEffort"; effort: string }
   | { type: "piReasoningEffort"; effort: string }
+
+function getModelIdSuffix(modelId: string) {
+  const slashIndex = modelId.indexOf("/")
+  return slashIndex >= 0 ? modelId.slice(slashIndex + 1) : modelId
+}
+
+function resolvePiCatalogModel(models: ProviderCatalogEntry["models"], modelId: string) {
+  return models.find((candidate) => candidate.id === modelId)
+    ?? models.find((candidate) => getModelIdSuffix(candidate.id) === modelId)
+}
+
+function getPiProviderId(modelId: string) {
+  const slashIndex = modelId.indexOf("/")
+  return slashIndex >= 0 ? modelId.slice(0, slashIndex) : "custom"
+}
 
 interface ChatPreferenceControlsProps {
   availableProviders: ProviderCatalogEntry[]
@@ -187,15 +202,15 @@ export function ChatPreferenceControls({
   const selectedContextWindow = claudeModelOptions?.contextWindow ?? CLAUDE_CONTEXT_WINDOW_OPTIONS[0].id
   const ContextWindowIcon = selectedContextWindow === "1m" ? SquareMenu : SquareMinus
   const selectedPiModel = selectedProvider === "pi"
-    ? providerConfig.models.find((candidate) => candidate.id === model)
+    ? resolvePiCatalogModel(providerConfig.models, model)
     : undefined
   const selectedPiProviderId = selectedProvider === "pi"
-    ? selectedPiModel?.providerId ?? (model.includes("/") ? model.slice(0, model.indexOf("/")) : "custom")
+    ? selectedPiModel?.providerId ?? getPiProviderId(model)
     : undefined
   const piProviders = selectedProvider === "pi"
     ? Array.from(
       providerConfig.models.reduce((providers, candidate) => {
-        const providerId = candidate.providerId ?? (candidate.id.includes("/") ? candidate.id.slice(0, candidate.id.indexOf("/")) : "custom")
+        const providerId = candidate.providerId ?? getPiProviderId(candidate.id)
         if (!providers.has(providerId)) {
           providers.set(providerId, candidate.providerLabel ?? providerId)
         }
@@ -206,7 +221,7 @@ export function ChatPreferenceControls({
   const selectedPiProviderLabel = piProviders.find((provider) => provider.id === selectedPiProviderId)?.label ?? selectedPiProviderId
   const piModelsForSelectedProvider = selectedProvider === "pi"
     ? providerConfig.models.filter((candidate) => {
-      const providerId = candidate.providerId ?? (candidate.id.includes("/") ? candidate.id.slice(0, candidate.id.indexOf("/")) : "custom")
+      const providerId = candidate.providerId ?? getPiProviderId(candidate.id)
       return providerId === selectedPiProviderId
     })
     : []
@@ -291,7 +306,7 @@ export function ChatPreferenceControls({
                       setCustomModelDraft(candidate.id)
                       close()
                     }}
-                    selected={model === candidate.id}
+                    selected={(selectedPiModel?.id ?? model) === candidate.id}
                     icon={<ModelIcon className="h-4 w-4 text-muted-foreground" />}
                     label={candidate.label}
                   />

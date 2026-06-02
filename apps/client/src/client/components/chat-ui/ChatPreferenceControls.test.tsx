@@ -53,6 +53,13 @@ describe("ChatPreferenceControls", () => {
       ...PROVIDERS.find((provider) => provider.id === "pi")!,
       models: [
         {
+          id: "openai-codex/gpt-5.5",
+          label: "GPT-5.5",
+          providerId: "openai-codex",
+          providerLabel: "ChatGPT Plus/Pro (Codex Subscription)",
+          supportsEffort: true,
+        },
+        {
           id: "9router/gemini-3-flash",
           label: "gemini-3-flash",
           providerId: "9router",
@@ -75,5 +82,35 @@ describe("ChatPreferenceControls", () => {
 
     expect(html).toContain("9router")
     expect(html).toContain("gemini-3-flash")
+  })
+
+  test("maps legacy bare Pi model ids back to catalog provider models", () => {
+    const piCatalog: ProviderCatalogEntry = {
+      ...PROVIDERS.find((provider) => provider.id === "pi")!,
+      models: [
+        {
+          id: "openai-codex/gpt-5.5",
+          label: "GPT-5.5",
+          providerId: "openai-codex",
+          providerLabel: "ChatGPT Plus/Pro (Codex Subscription)",
+          supportsEffort: true,
+        },
+      ],
+    }
+    const html = renderToStaticMarkup(
+      <ChatPreferenceControls
+        availableProviders={PROVIDERS.map((provider) => provider.id === "pi" ? piCatalog : provider)}
+        selectedProvider="pi"
+        model="gpt-5.5"
+        modelOptions={{ reasoningEffort: "high" }}
+        onProviderChange={() => {}}
+        onModelChange={() => {}}
+        onModelOptionChange={() => {}}
+      />
+    )
+
+    expect(html).toContain("ChatGPT Plus/Pro (Codex Subscription)")
+    expect(html).toContain("GPT-5.5")
+    expect(html).not.toContain("custom")
   })
 })

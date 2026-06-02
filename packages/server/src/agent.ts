@@ -1,5 +1,7 @@
 import { query, type CanUseTool, type PermissionResult, type Query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk"
+import { readdir, readFile } from "node:fs/promises"
 import { homedir } from "node:os"
+import path from "node:path"
 import type {
   AgentProvider,
   ChatAttachment,
@@ -34,6 +36,7 @@ import {
 } from "./provider-catalog"
 import { resolveClaudeApiModelId } from "@kanna/shared/types"
 import { fallbackTitleFromMessage } from "./generate-title"
+import type { ProjectRecord } from "./events"
 
 const CLAUDE_TOOLSET = [
   "Skill",
@@ -245,6 +248,72 @@ export function buildPromptText(content: string, attachments: ChatAttachment[]) 
   return [
     trimmed || "Please inspect the attached files.",
     attachmentHint,
+  ].join("\n\n").trim()
+}
+
+function truncateContextText(value: string, maxLength: number) {
+  return value.length > maxLength ? `${value.slice(0, maxLength)}\n...` : value
+}
+
+async function readOptionalTextFile(filePath: string, maxLength: number) {
+  try {
+    return truncateContextText(await readFile(filePath, "utf8"), maxLength)
+  } catch {
+    return null
+  }
+}
+
+async function listProjectTopLevelFiles(localPath: string) {
+  try {
+    const entries = await readdir(localPath, { withFileTypes: true })
+    return entries
+      .filter((entry) => ![".git", "node_modules", "dist", "build", "out"].includes(entry.name))
+      .slice(0, 80)
+      .map((entry) => `${entry.isDirectory() ? "dir" : "file"}:${entry.name}`)
+  } catch {
+    return []
+  }
+}
+
+async function buildProjectContextText(project: ProjectRecord) {
+  const lines = [
+    "<kanna-project-context>",
+    `project_id: ${project.id}`,
+    `project_path: ${project.localPath}`,
+  ]
+  if (project.title) {
+    lines.push(`project_title: ${project.title}`)
+  }
+
+  const topLevelFiles = await listProjectTopLevelFiles(project.localPath)
+  if (topLevelFiles.length > 0) {
+    lines.push("top_level_entries:")
+    lines.push(...topLevelFiles.map((entry) => `- ${entry}`))
+  }
+
+  const packageJson = await readOptionalTextFile(path.join(project.localPath, "package.json"), 2_000)
+  if (packageJson) {
+    lines.push("package_json_excerpt:")
+    lines.push(packageJson)
+  }
+
+  const readme = await readOptionalTextFile(path.join(project.localPath, "README.md"), 3_000)
+  if (readme) {
+    lines.push("readme_excerpt:")
+    lines.push(readme)
+  }
+
+  lines.push("</kanna-project-context>")
+  return lines.join("\n")
+}
+
+export async function buildPiPromptText(project: ProjectRecord, content: string, attachments: ChatAttachment[]) {
+  const promptText = buildPromptText(content, attachments)
+  const contextText = await buildProjectContextText(project)
+  return [
+    contextText,
+    "Use this project context as already-known background. If the user asks what you know about the project, answer from this context first, then inspect files only when needed.",
+    promptText,
   ].join("\n\n").trim()
 }
 
@@ -1064,7 +1133,7 @@ export class AgentCoordinator {
       })
       turn = await this.piManager.startTurn({
         chatId: args.chatId,
-        content: buildPromptText(args.content, args.attachments),
+        content: await buildPiPromptText(project, args.content, args.attachments),
         model: args.model,
         effort: args.effort as any,
         onToolRequest,

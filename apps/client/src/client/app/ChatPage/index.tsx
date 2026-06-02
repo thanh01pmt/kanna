@@ -1,15 +1,17 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties, type DragEvent, type ReactNode, type RefObject } from "react"
 import { type LegendListRef } from "@legendapp/list/react"
 import { WorkflowTrackerPanel } from "@kanna/workflow-tracker"
-import type { WorkflowArtifactImpact, WorkflowArtifactRef, WorkflowDefinitionSummary, WorkflowRunProjection, WorkflowNode } from "@kanna/shared/types"
+import type { WorkflowArtifactRef, WorkflowDefinitionSummary, WorkflowRunProjection, WorkflowNode } from "@kanna/shared/types"
 import type { GroupImperativeHandle } from "react-resizable-panels"
 import { useOutletContext } from "react-router-dom"
+import { ArrowLeft, GitPullRequest, Globe, Layers3, PanelRight, Presentation, Terminal, UserRoundPlus, X } from "lucide-react"
 import type { ChatInputHandle } from "../../components/chat-ui/ChatInput"
 import { ChatNavbar } from "../../components/chat-ui/ChatNavbar"
 import { BrowserPanel } from "../../components/chat-ui/BrowserPanel"
 import { MarkdownSlideViewer } from "../../components/chat-ui/MarkdownSlideViewer"
 import { GitPanel } from "../../components/chat-ui/GitPanel"
 import { useAppDialog } from "../../components/ui/app-dialog"
+import { Button } from "../../components/ui/button"
 import { Card, CardContent } from "../../components/ui/card"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../../components/ui/resizable"
 import { actionMatchesEvent, getResolvedKeybindings } from "../../lib/keybindings"
@@ -379,6 +381,161 @@ const MobileSidebarPane = memo(function MobileSidebarPane({
         {content}
       </div>
     </div>
+  )
+})
+
+type RightPanelId = "hidden" | "launcher" | "git" | "browser" | "slides" | "workflow"
+
+interface RightSidebarShellProps {
+  activePanel: RightPanelId
+  additions: number
+  deletions: number
+  embeddedTerminalVisible: boolean
+  canShareChat: boolean
+  isExportingShare: boolean
+  shareComplete: boolean
+  content: ReactNode
+  onClose: () => void
+  onOpenLauncher: () => void
+  onToggleGitPanel: () => void
+  onToggleBrowserPanel: () => void
+  onToggleSlidesPanel: () => void
+  onToggleWorkflowPanel: () => void
+  onToggleEmbeddedTerminal: () => void
+  onShareChat?: () => void
+}
+
+const RightSidebarShell = memo(function RightSidebarShell({
+  activePanel,
+  additions,
+  deletions,
+  embeddedTerminalVisible,
+  canShareChat,
+  isExportingShare,
+  shareComplete,
+  content,
+  onClose,
+  onOpenLauncher,
+  onToggleGitPanel,
+  onToggleBrowserPanel,
+  onToggleSlidesPanel,
+  onToggleWorkflowPanel,
+  onToggleEmbeddedTerminal,
+  onShareChat,
+}: RightSidebarShellProps) {
+  const featureItems = [
+    {
+      id: "git",
+      label: "Review",
+      description: "View code changes",
+      icon: GitPullRequest,
+      onClick: onToggleGitPanel,
+      shortcut: null,
+      meta: additions > 0 || deletions > 0 ? (
+        <span className="flex items-center gap-2 tabular-nums">
+          {additions > 0 ? <span className="text-emerald-500">+{additions.toLocaleString()}</span> : null}
+          {deletions > 0 ? <span className="text-red-500">-{deletions.toLocaleString()}</span> : null}
+        </span>
+      ) : null,
+    },
+    { id: "browser", label: "Browser", description: "Open a website", icon: Globe, onClick: onToggleBrowserPanel, shortcut: null, meta: null },
+    { id: "workflow", label: "Workflow", description: "Track workflow progress", icon: Layers3, onClick: onToggleWorkflowPanel, shortcut: null, meta: null },
+    { id: "slides", label: "Slides", description: "View markdown slides", icon: Presentation, onClick: onToggleSlidesPanel, shortcut: null, meta: null },
+    { id: "terminal", label: "Terminal", description: embeddedTerminalVisible ? "Hide interactive shell" : "Start interactive shell", icon: Terminal, onClick: onToggleEmbeddedTerminal, shortcut: null, meta: null },
+    {
+      id: "share",
+      label: shareComplete ? "Shared" : isExportingShare ? "Sharing..." : "Share chat",
+      description: "Export this conversation",
+      icon: UserRoundPlus,
+      onClick: canShareChat ? onShareChat : undefined,
+      shortcut: null,
+      meta: null,
+    },
+  ].filter((item) => item.id !== "share" || item.onClick) as Array<{
+    id: string
+    label: string
+    description: string
+    icon: typeof GitPullRequest
+    onClick?: () => void
+    shortcut: string | null
+    meta: ReactNode
+  }>
+
+  const panelTitles: Record<Exclude<RightPanelId, "hidden" | "launcher">, string> = {
+    git: "Review",
+    browser: "Browser",
+    slides: "Slides",
+    workflow: "Workflow",
+  }
+  const detailTitle = activePanel === "git" || activePanel === "browser" || activePanel === "slides" || activePanel === "workflow"
+    ? panelTitles[activePanel]
+    : "Side panel"
+
+  const renderFeature = (item: {
+    id: string
+    label: string
+    description: string
+    icon: typeof GitPullRequest
+    onClick?: () => void
+    shortcut: string | null
+    meta: ReactNode
+  }) => {
+    const Icon = item.icon
+    return (
+      <button
+        key={item.id}
+        type="button"
+        disabled={!item.onClick}
+        onClick={item.onClick}
+        className={cn(
+          "group flex min-h-[128px] w-full flex-col items-center justify-center rounded-md border border-border/35 bg-card/55 px-5 py-5 text-center transition-colors",
+          "hover:border-border hover:bg-accent/55",
+          !item.onClick && "cursor-default opacity-60 hover:border-border/35 hover:bg-card/55",
+        )}
+      >
+        <Icon className="mb-3 h-6 w-6 text-muted-foreground transition-colors group-hover:text-foreground" />
+        <span className="text-base font-semibold text-foreground">{item.label}</span>
+        <span className="mt-1 text-sm text-muted-foreground">{item.description}</span>
+        {item.meta ? <span className="mt-3 text-xs">{item.meta}</span> : null}
+        {item.shortcut ? <span className="mt-3 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{item.shortcut}</span> : null}
+      </button>
+    )
+  }
+
+  if (activePanel === "launcher") {
+    return (
+      <aside className="flex h-full min-h-0 flex-col border-l border-border bg-background">
+        <div className="flex h-12 shrink-0 items-center justify-between border-b border-border/70 px-4">
+          <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <PanelRight className="h-4 w-4 text-muted-foreground" />
+            Side panel
+          </div>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onClose} title="Close side panel" aria-label="Close side panel">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
+          <div className="space-y-4">{featureItems.map(renderFeature)}</div>
+        </div>
+      </aside>
+    )
+  }
+
+  return (
+    <aside className="flex h-full min-h-0 flex-col border-l border-border bg-background">
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border/70 px-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onOpenLauncher} title="Back to side panel" aria-label="Back to side panel">
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div className="truncate text-sm font-semibold text-foreground">{detailTitle}</div>
+        </div>
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onClose} title="Close side panel" aria-label="Close side panel">
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-hidden">{content}</div>
+    </aside>
   )
 })
 
@@ -993,6 +1150,20 @@ export function ChatPage() {
     hideRightPanel(projectId)
   }, [hideRightPanel, projectId])
 
+  const handleOpenRightSidebarLauncher = useCallback(() => {
+    if (!projectId) return
+    toggleRightPanel(projectId, "launcher")
+  }, [projectId, toggleRightPanel])
+
+  const handleToggleRightSidebar = useCallback(() => {
+    if (!projectId) return
+    if (activeRightPanel === "hidden") {
+      toggleRightPanel(projectId, "launcher")
+      return
+    }
+    hideRightPanel(projectId)
+  }, [activeRightPanel, hideRightPanel, projectId, toggleRightPanel])
+
   const handleToggleGitPanel = useCallback(() => {
     if (!projectId) return
 
@@ -1133,7 +1304,7 @@ export function ChatPage() {
 
       if (actionMatchesEvent(resolvedKeybindings, "toggleRightSidebar", event)) {
         event.preventDefault()
-        handleToggleGitPanel()
+        handleToggleRightSidebar()
         return
       }
 
@@ -1157,7 +1328,7 @@ export function ChatPage() {
 
     window.addEventListener("keydown", handleGlobalKeydown)
     return () => window.removeEventListener("keydown", handleGlobalKeydown)
-  }, [addTerminal, handleToggleEmbeddedTerminal, handleToggleGitPanel, projectId, resolvedKeybindings, state.handleOpenExternal])
+  }, [addTerminal, handleToggleEmbeddedTerminal, handleToggleRightSidebar, projectId, resolvedKeybindings, state.handleOpenExternal])
 
   useEffect(() => {
     const frameId = window.requestAnimationFrame(() => {
@@ -1277,7 +1448,7 @@ export function ChatPage() {
           embeddedTerminalVisible={showTerminalPane}
           onToggleEmbeddedTerminal={projectId ? handleToggleEmbeddedTerminal : undefined}
           rightPanel={activeRightPanel}
-          onToggleGitPanel={projectId ? handleToggleGitPanel : undefined}
+          onToggleGitPanel={projectId ? handleToggleRightSidebar : undefined}
           onToggleBrowserPanel={projectId ? handleToggleBrowserPanel : undefined}
           onToggleSlidesPanel={projectId ? handleToggleSlidesPanel : undefined}
           onToggleWorkflowPanel={projectId ? handleToggleWorkflowPanel : undefined}
@@ -1293,9 +1464,6 @@ export function ChatPage() {
           editorShortcut={resolvedKeybindings.bindings.openInEditor}
           terminalShortcut={resolvedKeybindings.bindings.toggleEmbeddedTerminal}
           rightSidebarShortcut={resolvedKeybindings.bindings.toggleRightSidebar}
-          branchName={state.chatDiffSnapshot?.branchName}
-          hasGitRepo={state.chatDiffSnapshot?.status !== "no_repo"}
-          gitStatus={state.chatDiffSnapshot?.status}
         />
         <ChatTranscriptViewport
           activeChatId={state.activeChatId}
@@ -1446,7 +1614,7 @@ export function ChatPage() {
     state.editorLabel,
     wrapDiffLines,
   ])
-  const rightPanelContent = activeRightPanel === "browser" && projectId
+  const rightPanelBodyContent = activeRightPanel === "browser" && projectId
     ? <BrowserPanel projectId={projectId} socket={state.socket} onClose={handleCloseRightSidebar} onRunQuickAction={handleRunQuickAction} />
     : activeRightPanel === "slides" && projectId
       ? <MarkdownSlideViewer projectId={projectId} socket={state.socket} onClose={handleCloseRightSidebar} />
@@ -1482,6 +1650,35 @@ export function ChatPage() {
         : gitPanelContentProps
           ? <ChatSidebarContent {...gitPanelContentProps} />
           : null
+  const diffTotals = useMemo(() => {
+    return (state.chatDiffSnapshot?.files ?? []).reduce(
+      (totals, file) => ({
+        additions: totals.additions + file.additions,
+        deletions: totals.deletions + file.deletions,
+      }),
+      { additions: 0, deletions: 0 },
+    )
+  }, [state.chatDiffSnapshot?.files])
+  const rightPanelContent = projectId && activeRightPanel !== "hidden" ? (
+    <RightSidebarShell
+      activePanel={activeRightPanel}
+      additions={diffTotals.additions}
+      deletions={diffTotals.deletions}
+      embeddedTerminalVisible={showTerminalPane}
+      canShareChat={Boolean(state.activeChatId) && !state.isExportingStandalone}
+      isExportingShare={state.isExportingStandalone}
+      shareComplete={state.standaloneShareComplete}
+      content={rightPanelBodyContent}
+      onClose={handleCloseRightSidebar}
+      onOpenLauncher={handleOpenRightSidebarLauncher}
+      onToggleGitPanel={handleToggleGitPanel}
+      onToggleBrowserPanel={handleToggleBrowserPanel}
+      onToggleSlidesPanel={handleToggleSlidesPanel}
+      onToggleWorkflowPanel={handleToggleWorkflowPanel}
+      onToggleEmbeddedTerminal={handleToggleEmbeddedTerminal}
+      onShareChat={state.activeChatId ? () => void state.handleShareChat(state.activeChatId) : undefined}
+    />
+  ) : null
 
   return (
     <div ref={layoutRootRef} className="flex-1 flex flex-col min-w-0 relative">
