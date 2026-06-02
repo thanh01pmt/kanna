@@ -9,6 +9,7 @@ import {
 } from "./agent"
 import type { HarnessTurn } from "./harness-types"
 import type { ChatAttachment, TranscriptEntry } from "@kanna/shared/types"
+import { InMemoryWorkflowRuntimeStore } from "./workflow-runtime-store"
 
 function timestamped<T extends Omit<TranscriptEntry, "_id" | "createdAt">>(entry: T): TranscriptEntry {
   return {
@@ -208,6 +209,158 @@ describe("attachment prompt helpers", () => {
 })
 
 describe("AgentCoordinator codex integration", () => {
+  test("mirrors a Pi smoke workflow turn into workflow runtime projection artifacts", async () => {
+    const workflowStore = new InMemoryWorkflowRuntimeStore()
+    const definition = await workflowStore.publishManifest({
+      projectId: "project-1",
+      manifest: {
+        version: "1.0.0",
+        name: "Pi Bridge Smoke Workflow",
+        description: "Creates a small artifact and reports test status through the Pi bridge.",
+        artifacts: [
+          {
+            id: "pi_smoke_report",
+            name: "Pi smoke report",
+            pattern: "smoke/pi-workflow-smoke.md",
+          },
+        ],
+        outputs: [
+          {
+            path: "smoke/pi-workflow-smoke.md",
+            type: "file",
+          },
+        ],
+        nodes: [
+          {
+            id: "pi-smoke-root",
+            name: "Pi smoke",
+            nodeType: "workflow",
+            status: "running",
+            children: [
+              {
+                id: "create-smoke-artifact",
+                name: "Create smoke artifact",
+                nodeType: "step",
+                status: "running",
+                agent: "pi",
+                produces: ["pi_smoke_report"],
+              },
+            ],
+          },
+        ],
+      },
+    })
+    await workflowStore.registerWorkflow({
+      projectId: "project-1",
+      workflowDefinitionId: definition.id,
+      versionId: definition.currentVersionId,
+      isDefaultEntrypoint: true,
+    })
+    const run = await workflowStore.startRun({
+      projectId: "project-1",
+      workflowDefinitionId: definition.id,
+      chatId: "chat-1",
+    })
+
+    const fakePiManager = {
+      async startSession() {},
+      async startTurn(): Promise<HarnessTurn> {
+        async function* stream() {
+          yield {
+            type: "transcript" as const,
+            entry: timestamped({
+              kind: "system_init",
+              provider: "pi",
+              model: "gpt-5.5",
+              tools: ["Write", "Bash"],
+              agents: [],
+              slashCommands: [],
+              mcpServers: [],
+            }),
+          }
+          yield {
+            type: "transcript" as const,
+            entry: timestamped({
+              kind: "tool_call",
+              tool: {
+                kind: "tool",
+                toolKind: "write_file",
+                toolName: "Write",
+                toolId: "pi-write-1",
+                input: {
+                  filePath: "smoke/pi-workflow-smoke.md",
+                  content: "# Pi bridge smoke\n\nTest command: pnpm --filter @kanna/server check\n",
+                },
+              },
+            }),
+          }
+          yield {
+            type: "transcript" as const,
+            entry: timestamped({
+              kind: "tool_result",
+              toolId: "pi-write-1",
+              content: "wrote smoke/pi-workflow-smoke.md",
+              isError: false,
+            }),
+          }
+          yield {
+            type: "transcript" as const,
+            entry: timestamped({
+              kind: "result",
+              subtype: "success",
+              isError: false,
+              durationMs: 12,
+              result: "Pi smoke workflow complete.",
+            }),
+          }
+        }
+
+        return {
+          provider: "pi",
+          stream: stream(),
+          interrupt: async () => {},
+          close: () => {},
+        }
+      },
+    }
+
+    const workflowBroadcasts: string[] = []
+    const store = createFakeStore()
+    const coordinator = new AgentCoordinator({
+      store: store as never,
+      onStateChange: () => {},
+      onWorkflowStateChange: (projectId) => workflowBroadcasts.push(projectId),
+      workflowStore,
+      piManager: fakePiManager as never,
+      generateTitle: async () => ({ title: "Pi smoke", usedFallback: true, failureMessage: null }),
+    })
+
+    await coordinator.send({
+      type: "chat.send",
+      chatId: "chat-1",
+      provider: "pi",
+      content: "Run the Pi bridge smoke workflow and write the smoke artifact.",
+      model: "gpt-5.5",
+      effort: "high",
+    })
+
+    await waitFor(() => store.turnFinishedCount === 1)
+    const projection = await workflowStore.getProjectProjection("project-1")
+    const artifact = projection?.latestArtifacts?.find((entry) => entry.path === "smoke/pi-workflow-smoke.md")
+    const events = await workflowStore.listEvents(run.id)
+
+    expect(artifact).toMatchObject({
+      path: "smoke/pi-workflow-smoke.md",
+      workflowStatus: "done",
+      producedByNodeId: "tool_pi-write-1",
+    })
+    expect(artifact?.checksum).toBeDefined()
+    expect(projection?.root.children?.some((node) => node.id === "runtime_agent_activity")).toBe(true)
+    expect(events.map((event) => event.type)).toContain("agent_tool_started")
+    expect(events.map((event) => event.type)).toContain("agent_turn_finished")
+    expect(workflowBroadcasts.length).toBeGreaterThan(0)
+  })
+
   test("generates a chat title in the background on the first user message", async () => {
     let releaseTitle!: () => void
     const titleGate = new Promise<void>((resolve) => {
@@ -1595,7 +1748,7 @@ function createFakeStore() {
     id: "chat-1",
     projectId: "project-1",
     title: "New Chat",
-    provider: null as "claude" | "codex" | null,
+    provider: null as "claude" | "codex" | "antigravity" | "pi" | null,
     planMode: false,
     sessionToken: null as string | null,
     pendingForkSessionToken: null as string | null,
@@ -1624,7 +1777,7 @@ function createFakeStore() {
     getMessages() {
       return this.messages
     },
-    async setChatProvider(_chatId: string, provider: "claude" | "codex") {
+    async setChatProvider(_chatId: string, provider: "claude" | "codex" | "antigravity" | "pi") {
       chat.provider = provider
     },
     async setPlanMode(_chatId: string, planMode: boolean) {

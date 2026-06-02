@@ -9,10 +9,12 @@
   "scripts": {
     "dev": "bun run ./scripts/dev-server.ts",
     "start": "bun run ./src/cli.ts",
+    "smoke:pi-workflow": "bun run ./scripts/pi-workflow-smoke.ts",
     "check": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.126",
+    "@earendil-works/pi-coding-agent": "^0.74.0",
     "@kanna/shared": "workspace:*",
     "@supabase/supabase-js": "^2.106.2",
     "@xterm/headless": "^6.0.0",

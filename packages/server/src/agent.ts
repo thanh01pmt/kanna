@@ -19,6 +19,7 @@ import { NoopAnalyticsReporter } from "./analytics"
 import { CodexAppServerManager } from "./codex-app-server"
 import { AntigravityAppServerManager } from "./antigravity-app-server"
 import { PiAppServerManager } from "./pi-app-server"
+import { PiSdkAppServerManager } from "./pi-sdk-app-server"
 import { type GenerateChatTitleResult, generateTitleForChatDetailed } from "./generate-title"
 import type { HarnessEvent, HarnessToolRequest, HarnessTurn } from "./harness-types"
 import type { WorkflowRuntimeStore } from "./workflow-runtime-store"
@@ -111,7 +112,7 @@ interface AgentCoordinatorArgs {
   analytics?: AnalyticsReporter
   codexManager?: CodexAppServerManager
   antigravityManager?: AntigravityAppServerManager
-  piManager?: PiAppServerManager
+  piManager?: PiAppServerManager | PiSdkAppServerManager
   generateTitle?: (messageContent: string, cwd: string) => Promise<GenerateChatTitleResult>
   startClaudeSession?: (args: {
     localPath: string
@@ -694,7 +695,7 @@ export class AgentCoordinator {
   private readonly analytics: AnalyticsReporter
   private readonly codexManager: CodexAppServerManager
   private readonly antigravityManager: AntigravityAppServerManager
-  private readonly piManager: PiAppServerManager
+  private readonly piManager: PiAppServerManager | PiSdkAppServerManager
   private readonly generateTitle: (messageContent: string, cwd: string) => Promise<GenerateChatTitleResult>
   private readonly startClaudeSessionFn: NonNullable<AgentCoordinatorArgs["startClaudeSession"]>
   private readonly onWorkflowStateChange?: (projectId: string) => void
@@ -711,7 +712,7 @@ export class AgentCoordinator {
     this.analytics = args.analytics ?? NoopAnalyticsReporter
     this.codexManager = args.codexManager ?? new CodexAppServerManager()
     this.antigravityManager = args.antigravityManager ?? new AntigravityAppServerManager()
-    this.piManager = args.piManager ?? new PiAppServerManager()
+    this.piManager = args.piManager ?? new PiSdkAppServerManager()
     this.generateTitle = args.generateTitle ?? generateTitleForChatDetailed
     this.startClaudeSessionFn = args.startClaudeSession ?? startClaudeSession
     this.workflowStore = args.workflowStore

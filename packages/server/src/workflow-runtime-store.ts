@@ -933,6 +933,90 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
     return limit ? events.slice(0, limit) : events
   }
 
+  async recordTranscriptEntry(args: {
+    projectId: string
+    chatId: string
+    provider: AgentProvider
+    entry: TranscriptEntry
+  }): Promise<void> {
+    const projection = this.projectionsByProjectId.get(args.projectId)
+    if (!projection) return
+
+    const payload = workflowPayloadFromTranscriptEntry(args)
+    if (!payload) return
+
+    await this.appendEvent({
+      runId: projection.id,
+      type: payload.eventType,
+      payload: payload.payload,
+      actorType: payload.actorType,
+      actorId: payload.actorId,
+    })
+
+    if (args.entry.kind === "system_init") {
+      projection.root = ensureRuntimeActivityNode(projection.root, {
+        chatId: args.chatId,
+        provider: args.provider,
+        status: "running",
+        logSummary: `Pi bridge smoke flow is observing ${args.provider} runtime activity.`,
+      })
+      this.projectionsByProjectId.set(args.projectId, projection)
+      this.runsById.set(projection.id, projection)
+      return
+    }
+
+    if (args.entry.kind === "tool_call") {
+      projection.root = ensureRuntimeActivityNode(projection.root, {
+        chatId: args.chatId,
+        provider: args.provider,
+        status: "running",
+      })
+      projection.root = upsertRuntimeToolNode(projection.root, {
+        toolId: args.entry.tool.toolId,
+        provider: args.provider,
+        chatId: args.chatId,
+        name: payload.nodeName,
+        status: "running",
+        logSummary: payload.nodeSummary,
+      })
+
+      const artifact = artifactFromTranscriptToolCall(args.entry.tool.toolKind, args.entry.tool.input)
+      if (artifact && artifact.action !== "read") {
+        projection.latestArtifacts = upsertProjectionArtifact({
+          projectId: args.projectId,
+          artifacts: projection.latestArtifacts ?? [],
+          toolId: args.entry.tool.toolId,
+          artifact,
+        })
+      }
+    }
+
+    if (args.entry.kind === "tool_result") {
+      projection.root = upsertRuntimeToolNode(projection.root, {
+        toolId: args.entry.toolId,
+        provider: args.provider,
+        chatId: args.chatId,
+        name: "Tool result",
+        status: args.entry.isError ? "failed" : "done",
+        logSummary: args.entry.isError ? "Tool result returned an error." : "Tool completed.",
+      })
+    }
+
+    if (args.entry.kind === "result") {
+      projection.root = ensureRuntimeActivityNode(projection.root, {
+        chatId: args.chatId,
+        provider: args.provider,
+        status: args.entry.isError ? "failed" : "done",
+        durationMs: args.entry.durationMs,
+        logSummary: args.entry.isError ? args.entry.result.slice(0, 240) : "Agent turn finished.",
+      })
+      projection.status = args.entry.isError ? "failed" : "running"
+    }
+
+    this.projectionsByProjectId.set(args.projectId, projection)
+    this.runsById.set(projection.id, projection)
+  }
+
   async inspectResumePlan(args: { projectId: string; runId: string }): Promise<any> {
     const run = this.runsById.get(args.runId)
     if (!run) throw new Error("Workflow run not found")
@@ -1719,6 +1803,264 @@ function buildNodeTree(rows: WorkflowNodeRow[], fallbackRoot: WorkflowNode): Wor
   }
 
   return root ?? fallbackRoot
+}
+
+function workflowPayloadFromTranscriptEntry(args: {
+  projectId: string
+  chatId: string
+  provider: AgentProvider
+  entry: TranscriptEntry
+}): null | {
+  eventType: string
+  actorType: WorkflowEventRecord["actorType"]
+  actorId?: string
+  nodeName: string
+  nodeSummary?: string
+  payload: WorkflowEventPayload
+} {
+  const basePayload = {
+    projectId: args.projectId,
+    chatId: args.chatId,
+    provider: args.provider,
+    transcriptEntryId: args.entry._id,
+    transcriptKind: args.entry.kind,
+  }
+
+  switch (args.entry.kind) {
+    case "system_init":
+      return {
+        eventType: "agent_session_started",
+        actorType: "agent",
+        actorId: args.provider,
+        nodeName: "Agent session started",
+        payload: {
+          ...basePayload,
+          model: args.entry.model,
+          tools: args.entry.tools,
+          agents: args.entry.agents,
+        },
+      }
+    case "assistant_text":
+      return {
+        eventType: "agent_message",
+        actorType: "agent",
+        actorId: args.provider,
+        nodeName: "Agent message",
+        payload: {
+          ...basePayload,
+          textPreview: args.entry.text.slice(0, 400),
+        },
+      }
+    case "tool_call":
+      return {
+        eventType: "agent_tool_started",
+        actorType: "agent",
+        actorId: args.provider,
+        nodeName: args.entry.tool.toolKind.replaceAll("_", " "),
+        nodeSummary: args.entry.tool.toolName,
+        payload: {
+          ...basePayload,
+          toolId: args.entry.tool.toolId,
+          toolKind: args.entry.tool.toolKind,
+          toolName: args.entry.tool.toolName,
+          input: args.entry.tool.input,
+        },
+      }
+    case "tool_result":
+      return {
+        eventType: "agent_tool_finished",
+        actorType: "agent",
+        actorId: args.provider,
+        nodeName: "Tool result",
+        payload: {
+          ...basePayload,
+          toolId: args.entry.toolId,
+          isError: Boolean(args.entry.isError),
+          resultPreview: stringFromWorkflowPayload(args.entry.content).slice(0, 800),
+        },
+      }
+    case "context_window_updated":
+      return {
+        eventType: "token_usage_observed",
+        actorType: "system",
+        nodeName: "Token usage",
+        payload: {
+          ...basePayload,
+          usage: args.entry.usage,
+        },
+      }
+    case "result":
+      return {
+        eventType: "agent_turn_finished",
+        actorType: "agent",
+        actorId: args.provider,
+        nodeName: "Agent turn finished",
+        payload: {
+          ...basePayload,
+          subtype: args.entry.subtype,
+          isError: args.entry.isError,
+          durationMs: args.entry.durationMs,
+          resultPreview: args.entry.result.slice(0, 800),
+        },
+      }
+    case "interrupted":
+      return {
+        eventType: "agent_turn_interrupted",
+        actorType: "system",
+        nodeName: "Agent interrupted",
+        payload: basePayload,
+      }
+    default:
+      return null
+  }
+}
+
+function ensureRuntimeActivityNode(root: WorkflowNode, args: {
+  chatId: string
+  provider: AgentProvider
+  status: WorkflowNodeStatus
+  durationMs?: number
+  logSummary?: string
+}): WorkflowNode {
+  const children = [...(root.children ?? [])]
+  const existingIndex = children.findIndex((child) => child.id === "runtime_agent_activity")
+  const existing = existingIndex >= 0 ? children[existingIndex] : undefined
+  const node: WorkflowNode = {
+    ...(existing ?? {
+      id: "runtime_agent_activity",
+      name: "Runtime agent activity",
+      nodeType: "task",
+      source: "dynamic",
+      order: children.length + 100,
+      children: [],
+    }),
+    status: args.status,
+    agent: args.provider,
+    agentRunId: args.chatId,
+    durationMs: args.durationMs ?? existing?.durationMs,
+    logSummary: args.logSummary ?? existing?.logSummary,
+    children: existing?.children ?? [],
+  }
+
+  if (existingIndex >= 0) {
+    children[existingIndex] = node
+  } else {
+    children.push(node)
+  }
+
+  return { ...root, children }
+}
+
+function upsertRuntimeToolNode(root: WorkflowNode, args: {
+  toolId: string
+  provider: AgentProvider
+  chatId: string
+  name: string
+  status: WorkflowNodeStatus
+  logSummary?: string
+}): WorkflowNode {
+  const nextRoot = ensureRuntimeActivityNode(root, {
+    chatId: args.chatId,
+    provider: args.provider,
+    status: "running",
+  })
+  const children = [...(nextRoot.children ?? [])]
+  const parentIndex = children.findIndex((child) => child.id === "runtime_agent_activity")
+  if (parentIndex < 0) return nextRoot
+
+  const parent = children[parentIndex]
+  const toolChildren = [...(parent.children ?? [])]
+  const nodeId = `tool_${args.toolId}`
+  const existingIndex = toolChildren.findIndex((child) => child.id === nodeId)
+  const existing = existingIndex >= 0 ? toolChildren[existingIndex] : undefined
+  const toolNode: WorkflowNode = {
+    ...(existing ?? {
+      id: nodeId,
+      nodeType: "step",
+      source: "dynamic",
+      order: toolChildren.length,
+      spawnedByNodeId: "runtime_agent_activity",
+    }),
+    name: args.name,
+    status: args.status,
+    agent: args.provider,
+    agentRunId: args.chatId,
+    logSummary: args.logSummary ?? existing?.logSummary,
+    sealed: args.status === "done" || args.status === "failed",
+    childrenSealed: true,
+  }
+
+  if (existingIndex >= 0) {
+    toolChildren[existingIndex] = toolNode
+  } else {
+    toolChildren.push(toolNode)
+  }
+  children[parentIndex] = { ...parent, children: toolChildren }
+  return { ...nextRoot, children }
+}
+
+function artifactFromTranscriptToolCall(toolKind: string, input: unknown): RuntimeArtifactRef | null {
+  const record = asRuntimeRecord(input)
+  const filePath = normalizeArtifactPath(record.filePath ?? record.path)
+  if (!filePath) return null
+
+  if (toolKind === "read_file") {
+    return { path: filePath, kind: classifyArtifactKind(filePath), action: "read" }
+  }
+  if (toolKind === "write_file") {
+    return {
+      path: filePath,
+      kind: classifyArtifactKind(filePath),
+      action: "write",
+      contentSnapshot: typeof record.content === "string" ? record.content : undefined,
+    }
+  }
+  if (toolKind === "edit_file") {
+    const contentSnapshot = [
+      typeof record.oldString === "string" ? record.oldString : "",
+      typeof record.newString === "string" ? record.newString : "",
+    ].join("\n---kanna-edit---\n")
+    return { path: filePath, kind: classifyArtifactKind(filePath), action: "edit", contentSnapshot }
+  }
+  if (toolKind === "delete_file") {
+    return { path: filePath, kind: classifyArtifactKind(filePath), action: "delete", contentSnapshot: "" }
+  }
+
+  return null
+}
+
+function upsertProjectionArtifact(args: {
+  projectId: string
+  artifacts: WorkflowArtifactRef[]
+  toolId: string
+  artifact: RuntimeArtifactRef
+}): WorkflowArtifactRef[] {
+  const updatedAt = new Date().toISOString()
+  const checksum = checksumForContent(args.artifact.contentSnapshot ?? "")
+  const existingIndex = args.artifacts.findIndex((artifact) => artifact.path === args.artifact.path)
+  const existing = existingIndex >= 0 ? args.artifacts[existingIndex] : undefined
+  const next: WorkflowArtifactRef = {
+    id: existing?.id ?? `${args.projectId}_${args.artifact.kind}_${slugifyWorkflowName(args.artifact.path)}`,
+    path: args.artifact.path,
+    kind: args.artifact.kind,
+    checksum,
+    version: updatedAt,
+    changed: false,
+    workflowStatus: args.artifact.action === "delete" ? "invalidated" : "done",
+    expected: existing?.expected ?? false,
+    updatedAt,
+    producedByNodeId: `tool_${args.toolId}`,
+    dependsOn: existing?.dependsOn,
+    ownershipClass: existing?.ownershipClass,
+    ownerWorkflowId: existing?.ownerWorkflowId,
+  }
+
+  if (existingIndex >= 0) {
+    const artifacts = [...args.artifacts]
+    artifacts[existingIndex] = next
+    return artifacts
+  }
+  return [...args.artifacts, next]
 }
 
 function matchPath(inputPath: string, type: "file" | "directory" | "glob", logicalPath: string): boolean {
