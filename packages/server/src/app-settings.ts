@@ -163,7 +163,7 @@ function normalizeChatSoundId(value: unknown): ChatSoundId {
 }
 
 function normalizeDefaultProvider(value: unknown): DefaultProviderPreference {
-  return value === "claude" || value === "codex" || value === "antigravity" || value === "pi" || value === "last_used"
+  return value === "claude" || value === "codex" || value === "pi" || value === "last_used"
     ? value
     : "last_used"
 }

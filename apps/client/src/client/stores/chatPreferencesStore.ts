@@ -149,7 +149,7 @@ type PersistedChatPreferencesState = Pick<
 > & LegacyPersistedChatPreferencesState
 
 export function normalizeDefaultProvider(value?: string): DefaultProviderPreference {
-  if (value === "claude" || value === "codex" || value === "antigravity" || value === "pi") return value
+  if (value === "claude" || value === "codex" || value === "pi") return value
   return "last_used"
 }
 
@@ -363,15 +363,7 @@ function composerFromProviderDefaults(
       modelOptions: { ...preference.modelOptions },
       planMode: preference.planMode,
     }
-  } else if (provider === "antigravity") {
-    const preference = providerDefaults.antigravity
-    return {
-      provider: "antigravity",
-      model: preference.model,
-      modelOptions: { ...preference.modelOptions },
-      planMode: preference.planMode,
-    }
-  } else {
+  } else if (provider === "pi") {
     const preference = providerDefaults.pi
     return {
       provider: "pi",
@@ -380,6 +372,8 @@ function composerFromProviderDefaults(
       planMode: preference.planMode,
     }
   }
+
+  return composerFromProviderDefaults("claude", providerDefaults)
 }
 
 function cloneComposerState(state: ComposerState): ComposerState {
@@ -466,12 +460,11 @@ function normalizeComposerState(
   }
 
   if (value?.provider === "antigravity") {
-    const preference = normalizeAntigravityPreference(value as any)
     return {
-      provider: "antigravity",
-      model: preference.model,
-      modelOptions: preference.modelOptions,
-      planMode: preference.planMode,
+      provider: "claude",
+      model: providerDefaults.claude.model,
+      modelOptions: { ...providerDefaults.claude.modelOptions },
+      planMode: providerDefaults.claude.planMode,
     }
   }
 
@@ -537,11 +530,11 @@ function createComposerStateForNewChat(args: {
   legacyComposerState?: ComposerState | null
 }): ComposerState {
   if (args.defaultProvider === "last_used") {
-    if (args.sourceState) {
+    if (args.sourceState && args.sourceState.provider !== "antigravity") {
       return cloneComposerState(args.sourceState)
     }
 
-    if (args.legacyComposerState) {
+    if (args.legacyComposerState && args.legacyComposerState.provider !== "antigravity") {
       return cloneComposerState(args.legacyComposerState)
     }
 
@@ -644,7 +637,7 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
     providerDefaults: createDefaultProviderDefaults(),
     chatStates: {},
     legacyComposerState: null,
-    setDefaultProvider: (defaultProvider) => set({ defaultProvider }),
+    setDefaultProvider: (defaultProvider) => set({ defaultProvider: defaultProvider === "antigravity" ? "last_used" : defaultProvider }),
     syncProviderDefaults: (defaultProvider, providerDefaults) =>
       set((state) => {
         const oldNewChatFallback = createComposerStateForNewChat({
@@ -783,23 +776,18 @@ export const useChatPreferencesStore = create<ChatPreferencesState>()(
                   modelOptions: normalizeCodexPreference(composerState).modelOptions,
                   planMode: composerState.planMode,
                 }
-                : composerState.provider === "antigravity"
+                : composerState.provider === "pi"
                   ? {
-                    provider: "antigravity",
-                    model: normalizeAntigravityPreference(composerState as any).model,
-                    modelOptions: normalizeAntigravityPreference(composerState as any).modelOptions,
-                    planMode: composerState.planMode,
-                  }
-                  : {
                     provider: "pi",
                     model: normalizePiPreference(composerState as any).model,
                     modelOptions: normalizePiPreference(composerState as any).modelOptions,
                     planMode: composerState.planMode,
-                  },
+                  }
+                  : composerFromProviderDefaults("claude", state.providerDefaults),
           },
         })),
       setChatComposerProvider: (chatId, provider) =>
-        set((state) => withChatComposerState(state, chatId, () => composerFromProviderDefaults(provider, state.providerDefaults))),
+        set((state) => withChatComposerState(state, chatId, () => composerFromProviderDefaults(provider === "antigravity" ? "claude" : provider, state.providerDefaults))),
       setChatComposerModel: (chatId, model) =>
         set((state) => withChatComposerState(state, chatId, (composerState) => (
           composerState.provider === "claude"

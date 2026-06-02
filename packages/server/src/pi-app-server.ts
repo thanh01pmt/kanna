@@ -33,6 +33,7 @@ type SpawnPi = (cwd: string, args: string[]) => PiProcess
 interface ActiveSession {
   chatId: string
   cwd: string
+  mcpToolConfigKey: string
   child: PiProcess | null
   model: string
   effort?: PiReasoningEffort
@@ -173,6 +174,7 @@ export interface StartPiSessionArgs {
   cwd: string
   model: string
   effort?: PiReasoningEffort
+  mcpToolConfigKey?: string
   sessionToken: string | null
 }
 
@@ -204,7 +206,8 @@ export class PiAppServerManager {
 
   async startSession(args: StartPiSessionArgs): Promise<void> {
     const existing = this.sessions.get(args.chatId)
-    if (existing && !existing.closed && existing.cwd === args.cwd) {
+    const nextMcpToolConfigKey = args.mcpToolConfigKey ?? ""
+    if (existing && !existing.closed && existing.cwd === args.cwd && existing.mcpToolConfigKey === nextMcpToolConfigKey) {
       return
     }
     if (existing) {
@@ -214,6 +217,7 @@ export class PiAppServerManager {
     const session: ActiveSession = {
       chatId: args.chatId,
       cwd: args.cwd,
+      mcpToolConfigKey: nextMcpToolConfigKey,
       child: null,
       model: args.model,
       effort: args.effort,

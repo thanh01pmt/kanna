@@ -175,19 +175,19 @@ function getEffectiveComposerState(
     }
   }
 
-  if (activeProvider === "antigravity") {
+  if (activeProvider === "pi") {
     return {
-      provider: "antigravity",
-      model: providerDefaults.antigravity.model,
-      modelOptions: { ...providerDefaults.antigravity.modelOptions },
+      provider: "pi",
+      model: providerDefaults.pi.model,
+      modelOptions: { ...providerDefaults.pi.modelOptions },
       planMode: composerState.planMode,
     }
   }
 
   return {
-    provider: "pi",
-    model: providerDefaults.pi.model,
-    modelOptions: { ...providerDefaults.pi.modelOptions },
+    provider: "claude",
+    model: providerDefaults.claude.model,
+    modelOptions: { ...providerDefaults.claude.modelOptions },
     planMode: composerState.planMode,
   }
 }

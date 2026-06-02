@@ -238,7 +238,7 @@ export function ChatPreferenceControls({
             </>
           )}
         >
-          {(close) => availableProviders.map((provider) => {
+          {(close) => availableProviders.filter((provider) => !provider.disabled).map((provider) => {
             const Icon = PROVIDER_ICONS[provider.id]
             return (
               <PopoverMenuItem

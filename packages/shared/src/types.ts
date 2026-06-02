@@ -282,6 +282,8 @@ export interface ProviderCatalogEntry {
   defaultModel: string
   defaultEffort?: string
   supportsPlanMode: boolean
+  disabled?: boolean
+  disabledReason?: string
   models: ProviderModelOption[]
   efforts: ProviderEffortOption[]
 }
@@ -337,6 +339,8 @@ export const PROVIDERS: ProviderCatalogEntry[] = [
     defaultModel: "gemini-3.5-flash",
     defaultEffort: "high",
     supportsPlanMode: false,
+    disabled: true,
+    disabledReason: "Temporarily disabled due to agent stability issues.",
     models: [
       { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash", supportsEffort: true },
       { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro Preview", supportsEffort: true },
@@ -631,6 +635,17 @@ export interface McpServerInfo {
   name: string
   status: string
   error?: string
+}
+
+export interface ProjectMcpServerConfig {
+  command: string
+  args?: string[]
+  env?: Record<string, string>
+}
+
+export interface ProjectMcpConfig {
+  mcpServers?: Record<string, ProjectMcpServerConfig>
+  tools?: Record<string, Record<string, boolean>>
 }
 
 export interface AccountInfo {

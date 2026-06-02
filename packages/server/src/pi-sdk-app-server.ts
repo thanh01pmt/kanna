@@ -29,6 +29,7 @@ type PiSdkModel = NonNullable<CreateAgentSessionOptions["model"]>
 interface ActiveSdkSession {
   chatId: string
   cwd: string
+  mcpToolConfigKey: string
   requestedModel: string
   model: string
   effort?: PiReasoningEffort
@@ -153,6 +154,7 @@ export interface StartPiSdkSessionArgs {
   cwd: string
   model: string
   effort?: PiReasoningEffort
+  mcpToolConfigKey?: string
   sessionToken: string | null
 }
 
@@ -185,7 +187,8 @@ export class PiSdkAppServerManager {
 
   async startSession(args: StartPiSdkSessionArgs): Promise<void> {
     const existing = this.sessions.get(args.chatId)
-    if (existing && !existing.closed && existing.cwd === args.cwd && existing.requestedModel === args.model && existing.effort === args.effort) {
+    const nextMcpToolConfigKey = args.mcpToolConfigKey ?? ""
+    if (existing && !existing.closed && existing.cwd === args.cwd && existing.requestedModel === args.model && existing.effort === args.effort && existing.mcpToolConfigKey === nextMcpToolConfigKey) {
       return
     }
     if (existing) {
@@ -207,6 +210,7 @@ export class PiSdkAppServerManager {
     const active: ActiveSdkSession = {
       chatId: args.chatId,
       cwd: args.cwd,
+      mcpToolConfigKey: nextMcpToolConfigKey,
       requestedModel: args.model,
       model: resolvedModel ? `${resolvedModel.provider}/${resolvedModel.id}` : args.model,
       effort: args.effort,

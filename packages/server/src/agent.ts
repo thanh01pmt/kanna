@@ -30,13 +30,13 @@ import {
   getServerProviderCatalog,
   normalizeClaudeModelOptions,
   normalizeCodexModelOptions,
-  normalizeAntigravityModelOptions,
   normalizePiModelOptions,
   normalizeServerModel,
 } from "./provider-catalog"
 import { resolveClaudeApiModelId } from "@kanna/shared/types"
 import { fallbackTitleFromMessage } from "./generate-title"
 import type { ProjectRecord } from "./events"
+import { mcpToolConfigKey, readDisabledMcpToolNames } from "./mcp-tool-config"
 
 const CLAUDE_TOOLSET = [
   "Skill",
@@ -100,6 +100,7 @@ interface ClaudeSessionState {
   localPath: string
   model: string
   effort?: string
+  mcpToolConfigKey: string
   planMode: boolean
   sessionToken: string | null
   accountInfoLoaded: boolean
@@ -121,6 +122,7 @@ interface AgentCoordinatorArgs {
     localPath: string
     model: string
     effort?: string
+    disallowedTools?: string[]
     planMode: boolean
     sessionToken: string | null
     forkSession: boolean
@@ -642,6 +644,7 @@ async function startClaudeSession(args: {
   localPath: string
   model: string
   effort?: string
+  disallowedTools?: string[]
   planMode: boolean
   sessionToken: string | null
   forkSession: boolean
@@ -715,6 +718,7 @@ async function startClaudeSession(args: {
       permissionMode: args.planMode ? "plan" : "acceptEdits",
       canUseTool,
       tools: [...CLAUDE_TOOLSET],
+      disallowedTools: args.disallowedTools,
       settingSources: ["user", "project", "local"],
       pathToClaudeCodeExecutable: process.env.CLAUDE_EXECUTABLE?.replace(/^~(?=\/|$)/, homedir()) || undefined,
       env: (() => { const { CLAUDECODE: _, ...env } = process.env; return env })(),
@@ -865,10 +869,17 @@ export class AgentCoordinator {
   }
 
   private resolveProvider(options: SendMessageOptions, currentProvider: AgentProvider | null) {
-    return options.provider ?? currentProvider ?? "claude"
+    if (options.provider === "antigravity") {
+      throw new Error("Antigravity is temporarily disabled due to agent stability issues.")
+    }
+    const provider = options.provider ?? currentProvider ?? "claude"
+    return provider === "antigravity" ? "claude" : provider
   }
 
   private getProviderSettings(provider: AgentProvider, options: SendMessageOptions) {
+    if (provider === "antigravity") {
+      throw new Error("Antigravity is temporarily disabled due to agent stability issues.")
+    }
     const catalog = getServerProviderCatalog(provider)
     if (provider === "claude") {
       const model = normalizeServerModel(provider, options.model)
@@ -878,17 +889,6 @@ export class AgentCoordinator {
         effort: modelOptions.reasoningEffort,
         serviceTier: undefined,
         planMode: catalog.supportsPlanMode ? Boolean(options.planMode) : false,
-      }
-    }
-
-    if (provider === "antigravity") {
-      const model = normalizeServerModel(provider, options.model)
-      const modelOptions = normalizeAntigravityModelOptions(options.modelOptions, options.effort)
-      return {
-        model,
-        effort: modelOptions.reasoningEffort,
-        serviceTier: undefined,
-        planMode: false,
       }
     }
 
@@ -1062,16 +1062,20 @@ export class AgentCoordinator {
 
     let turn: HarnessTurn
     if (args.provider === "claude") {
+      const disallowedMcpTools = await readDisabledMcpToolNames(project.localPath)
       logSendToStartingProfile(args.profile, "start_turn.provider_boot.begin", {
         chatId: args.chatId,
         provider: args.provider,
         model: args.model,
+        disabledMcpToolCount: disallowedMcpTools.length,
       })
       turn = await this.startClaudeTurn({
         chatId: args.chatId,
         localPath: project.localPath,
         model: args.model,
         effort: args.effort,
+        disallowedTools: disallowedMcpTools,
+        mcpToolConfigKey: mcpToolConfigKey(disallowedMcpTools),
         planMode: args.planMode,
         sessionToken: chat.pendingForkSessionToken ?? chat.sessionToken,
         forkSession: Boolean(chat.pendingForkSessionToken),
@@ -1118,11 +1122,13 @@ export class AgentCoordinator {
         provider: args.provider,
         model: args.model,
       })
+      const disallowedMcpTools = await readDisabledMcpToolNames(project.localPath)
       await this.piManager.startSession({
         chatId: args.chatId,
         cwd: project.localPath,
         model: args.model,
         effort: args.effort as any,
+        mcpToolConfigKey: mcpToolConfigKey(disallowedMcpTools),
         sessionToken: chat.sessionToken,
       })
       logSendToStartingProfile(args.profile, "start_turn.session_ready", {
@@ -1148,11 +1154,13 @@ export class AgentCoordinator {
         provider: args.provider,
         model: args.model,
       })
+      const disallowedMcpTools = await readDisabledMcpToolNames(project.localPath)
       const sessionToken = await this.codexManager.startSession({
         chatId: args.chatId,
         cwd: project.localPath,
         model: args.model,
         serviceTier: args.serviceTier,
+        mcpToolConfigKey: mcpToolConfigKey(disallowedMcpTools),
         sessionToken: chat.sessionToken,
         pendingForkSessionToken: chat.pendingForkSessionToken,
       })
@@ -1259,6 +1267,8 @@ export class AgentCoordinator {
     localPath: string
     model: string
     effort?: string
+    disallowedTools?: string[]
+    mcpToolConfigKey?: string
     planMode: boolean
     sessionToken: string | null
     forkSession: boolean
@@ -1266,7 +1276,7 @@ export class AgentCoordinator {
   }): Promise<HarnessTurn> {
     let session = this.claudeSessions.get(args.chatId)
 
-    if (!session || session.localPath !== args.localPath || session.effort !== args.effort || args.forkSession) {
+    if (!session || session.localPath !== args.localPath || session.effort !== args.effort || session.mcpToolConfigKey !== (args.mcpToolConfigKey ?? "") || args.forkSession) {
       if (session) {
         session.session.close()
         this.claudeSessions.delete(args.chatId)
@@ -1276,6 +1286,7 @@ export class AgentCoordinator {
         localPath: args.localPath,
         model: args.model,
         effort: args.effort,
+        disallowedTools: args.disallowedTools,
         planMode: args.planMode,
         sessionToken: args.sessionToken,
         forkSession: args.forkSession,
@@ -1289,6 +1300,7 @@ export class AgentCoordinator {
         localPath: args.localPath,
         model: args.model,
         effort: args.effort,
+        mcpToolConfigKey: args.mcpToolConfigKey ?? "",
         planMode: args.planMode,
         sessionToken: args.sessionToken,
         accountInfoLoaded: false,

@@ -58,7 +58,7 @@ const RunIdSchema = z.string().min(1).describe("Workflow run id returned by work
 const LimitSchema = z.number().int().min(1).max(200).optional().describe("Maximum number of rows to return.")
 const JsonObjectSchema = z.record(z.string(), z.unknown())
 
-server.registerTool(
+if (isToolEnabled("workflow_list_definitions")) server.registerTool(
   "workflow_list_definitions",
   {
     title: "List Workflow Definitions",
@@ -74,7 +74,7 @@ server.registerTool(
   },
 )
 
-server.registerTool(
+if (isToolEnabled("workflow_start_run")) server.registerTool(
   "workflow_start_run",
   {
     title: "Start Workflow Run",
@@ -95,7 +95,7 @@ server.registerTool(
   },
 )
 
-server.registerTool(
+if (isToolEnabled("workflow_publish_manifest")) server.registerTool(
   "workflow_publish_manifest",
   {
     title: "Publish Workflow Manifest",
@@ -115,7 +115,7 @@ server.registerTool(
   },
 )
 
-server.registerTool(
+if (isToolEnabled("workflow_get_projection")) server.registerTool(
   "workflow_get_projection",
   {
     title: "Get Workflow Projection",
@@ -130,7 +130,7 @@ server.registerTool(
   },
 )
 
-server.registerTool(
+if (isToolEnabled("workflow_list_runs")) server.registerTool(
   "workflow_list_runs",
   {
     title: "List Workflow Runs",
@@ -146,7 +146,7 @@ server.registerTool(
   },
 )
 
-server.registerTool(
+if (isToolEnabled("workflow_list_events")) server.registerTool(
   "workflow_list_events",
   {
     title: "List Workflow Events",
@@ -162,7 +162,7 @@ server.registerTool(
   },
 )
 
-server.registerTool(
+if (isToolEnabled("workflow_append_event")) server.registerTool(
   "workflow_append_event",
   {
     title: "Append Workflow Event",
@@ -184,7 +184,7 @@ server.registerTool(
   },
 )
 
-server.registerTool(
+if (isToolEnabled("artifact_list")) server.registerTool(
   "artifact_list",
   {
     title: "List Artifacts",
@@ -205,7 +205,7 @@ server.registerTool(
   },
 )
 
-server.registerTool(
+if (isToolEnabled("artifact_mark")) server.registerTool(
   "artifact_mark",
   {
     title: "Mark Artifact",
@@ -226,7 +226,7 @@ server.registerTool(
   },
 )
 
-server.registerTool(
+if (isToolEnabled("workflow_update_artifact_impact")) server.registerTool(
   "workflow_update_artifact_impact",
   {
     title: "Update Artifact Impact",

@@ -51,6 +51,8 @@ import {
   type LlmProviderKind,
   type ProviderCatalogEntry,
   type InstalledSkillsSnapshot,
+  type ProjectMcpConfig,
+  type ProjectMcpServerConfig,
   type SkillInstallResult,
   type SkillSearchResult,
   type SkillSearchSnapshot,
@@ -1849,19 +1851,11 @@ export function WorkflowSection({ state }: { state: KannaState }) {
   )
 }
 
-type McpServerConfig = {
-  command: string
-  args?: string[]
-  env?: Record<string, string>
-}
-
-type McpConfig = {
-  mcpServers?: Record<string, McpServerConfig>
-  tools?: Record<string, Record<string, boolean>>
-}
+type McpServerConfig = ProjectMcpServerConfig
+type McpConfig = ProjectMcpConfig
 
 function parseMcpConfig(content: string): McpConfig {
-  const parsed = JSON.parse(content) as McpConfig
+  const parsed = JSON.parse(content) as ProjectMcpConfig
   return {
     ...parsed,
     mcpServers: parsed.mcpServers ?? {},
@@ -2029,6 +2023,25 @@ export function McpSection({
     await saveConfig(nextConfig)
   }
 
+  const handleSetServerTools = async (serverName: string, toolNames: readonly string[], enabled: boolean) => {
+    const currentTools = config.tools ?? {}
+    const serverTools = currentTools[serverName] ?? {}
+    const nextServerTools = { ...serverTools }
+    for (const toolName of toolNames) {
+      nextServerTools[toolName] = enabled
+    }
+
+    const nextConfig = {
+      ...config,
+      tools: {
+        ...currentTools,
+        [serverName]: nextServerTools,
+      },
+    }
+    setConfig(nextConfig)
+    await saveConfig(nextConfig)
+  }
+
   useEffect(() => {
     void loadConfig()
   }, [projectId, state.connectionStatus, state.socket])
@@ -2121,18 +2134,48 @@ export function McpSection({
           {servers.length > 0 ? (
             servers.map(([name, server]) => {
               const isKannaWorkflow = name === "kanna-workflow"
+              const toolNames = isKannaWorkflow ? KANNA_MCP_TOOLS.map((tool) => tool.name) : []
+              const enabledCount = toolNames.filter((toolName) => config.tools?.[name]?.[toolName] !== false).length
+              const disabledCount = toolNames.length - enabledCount
               return (
                 <div key={name} className="rounded-lg border border-border bg-card/20">
-                  <div className="flex flex-col gap-1 border-b border-border px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-col gap-3 border-b border-border px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-foreground">{name}</div>
-                      <div className="truncate font-mono text-xs text-muted-foreground">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="truncate text-sm font-semibold text-foreground">{name}</div>
+                        <StatusPill tone={isKannaWorkflow ? "good" : "neutral"}>
+                          {isKannaWorkflow ? `${enabledCount}/${toolNames.length} enabled` : "External"}
+                        </StatusPill>
+                        {disabledCount > 0 ? <StatusPill tone="neutral">{disabledCount} disabled</StatusPill> : null}
+                      </div>
+                      <div className="mt-1 truncate font-mono text-xs text-muted-foreground">
                         {server.command}{server.args?.length ? ` ${server.args.join(" ")}` : ""}
                       </div>
                     </div>
-                    <StatusPill tone={isKannaWorkflow ? "good" : "neutral"}>
-                      {isKannaWorkflow ? `${KANNA_MCP_TOOLS.length} tools` : "External"}
-                    </StatusPill>
+                    {isKannaWorkflow ? (
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-8 px-2 text-xs"
+                          onClick={() => void handleSetServerTools(name, toolNames, false)}
+                          disabled={savingServerName !== null || disabledCount === toolNames.length}
+                        >
+                          Disable all
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="h-8 px-2 text-xs"
+                          onClick={() => void handleSetServerTools(name, toolNames, true)}
+                          disabled={savingServerName !== null || enabledCount === toolNames.length}
+                        >
+                          Enable all
+                        </Button>
+                      </div>
+                    ) : null}
                   </div>
 
                   {isKannaWorkflow ? (
@@ -2140,17 +2183,23 @@ export function McpSection({
                       {KANNA_MCP_TOOLS.map((tool) => {
                         const isEnabled = config.tools?.[name]?.[tool.name] !== false
                         return (
-                          <div key={tool.name} className="flex items-center justify-between px-3 py-2.5 gap-4">
+                          <div key={tool.name} className={cn(
+                            "flex items-center justify-between gap-4 px-3 py-2.5 transition-colors",
+                            !isEnabled && "bg-muted/20"
+                          )}>
                             <div className="flex flex-col gap-1 min-w-0 flex-1 sm:grid sm:grid-cols-[200px_1fr] sm:gap-4 sm:items-start">
                               <code className="truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground self-start" title={tool.name}>
                                 {tool.name}
                               </code>
-                              <div className="text-xs leading-relaxed text-muted-foreground">{tool.description}</div>
+                              <div className="text-xs leading-relaxed text-muted-foreground">
+                                {tool.description}
+                              </div>
                             </div>
                             <button
                               type="button"
                               onClick={() => void handleToggleTool(name, tool.name)}
-                              className="text-muted-foreground hover:text-foreground transition-colors p-1"
+                              disabled={savingServerName !== null}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
                               title={isEnabled ? "Disable tool" : "Enable tool"}
                               aria-label={`${isEnabled ? "Disable" : "Enable"} ${tool.name}`}
                             >
@@ -2276,9 +2325,12 @@ export function SettingsPage() {
   const handleWriteLlmProvider = state.handleWriteLlmProvider
   const handleValidateLlmProvider = state.handleValidateLlmProvider
   const settingsProviderCatalogs = useMemo(() => {
-    if (!piProviderCatalog) return PROVIDERS
-    return PROVIDERS.map((provider) => provider.id === "pi" ? piProviderCatalog : provider)
+    const providers = piProviderCatalog
+      ? PROVIDERS.map((provider) => provider.id === "pi" ? piProviderCatalog : provider)
+      : PROVIDERS
+    return providers
   }, [piProviderCatalog])
+  const enabledSettingsProviderCatalogs = useMemo(() => settingsProviderCatalogs.filter((provider) => !provider.disabled), [settingsProviderCatalogs])
   const updateStatusLabel = updateSnapshot?.status === "checking"
     ? "Checking for updates…"
     : updateSnapshot?.status === "updating"
@@ -2504,8 +2556,9 @@ export function SettingsPage() {
   }
 
   function handleDefaultProviderChange(nextValue: "last_used" | AgentProvider) {
-    setDefaultProvider(nextValue)
-    void handleWriteAppSettings({ defaultProvider: nextValue }).catch((error) => {
+    const provider = nextValue === "antigravity" ? "last_used" : nextValue
+    setDefaultProvider(provider)
+    void handleWriteAppSettings({ defaultProvider: provider }).catch((error) => {
       setAppSettingsError(error instanceof Error ? error.message : "Unable to save provider settings.")
     })
   }
@@ -3043,7 +3096,7 @@ export function SettingsPage() {
                       bordered={false}
                     >
                       <Select
-                        value={defaultProvider}
+                        value={defaultProvider === "antigravity" ? "last_used" : defaultProvider}
                         onValueChange={(value) => handleDefaultProviderChange(value as "last_used" | AgentProvider)}
                       >
                         <SelectTrigger className="min-w-[180px]">
@@ -3054,7 +3107,7 @@ export function SettingsPage() {
                             <SelectItem value="last_used">
                               Last Used
                             </SelectItem>
-                            {PROVIDERS.map((provider) => (
+                            {enabledSettingsProviderCatalogs.map((provider) => (
                               <SelectItem key={provider.id} value={provider.id}>
                                 {provider.label}
                               </SelectItem>
@@ -3128,31 +3181,10 @@ export function SettingsPage() {
 
                     <SettingsRow
                       title="Antigravity Defaults"
-                      description="Saved defaults when using Antigravity."
+                      description="Antigravity is temporarily disabled due to agent stability issues."
                       alignStart
                     >
-                      <div className="max-w-[420px]">
-                        <ChatPreferenceControls
-                          availableProviders={settingsProviderCatalogs}
-                          selectedProvider="antigravity"
-                          showProviderPicker={false}
-                          providerLocked
-                          model={providerDefaults.antigravity.model}
-                          modelOptions={providerDefaults.antigravity.modelOptions}
-                          onModelChange={(_, model) => {
-                            handleProviderDefaultModelChange("antigravity", model)
-                          }}
-                          onModelOptionChange={(change) => {
-                            if (change.type === "antigravityReasoningEffort") {
-                              handleProviderDefaultModelOptionsChange("antigravity", { reasoningEffort: change.effort as any })
-                            }
-                          }}
-                          planMode={providerDefaults.antigravity.planMode}
-                          onPlanModeChange={(planMode) => handleProviderDefaultPlanModeChange("antigravity", planMode)}
-                          includePlanMode
-                          className="justify-start flex-wrap"
-                        />
-                      </div>
+                      <StatusPill tone="neutral">Disabled</StatusPill>
                     </SettingsRow>
 
                     <SettingsRow

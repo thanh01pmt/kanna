@@ -106,6 +106,7 @@ interface PendingTurn {
 interface SessionContext {
   chatId: string
   cwd: string
+  mcpToolConfigKey: string
   child: CodexAppServerProcess
   pendingRequests: Map<CodexRequestId, PendingRequest<unknown>>
   pendingTurn: PendingTurn | null
@@ -119,6 +120,7 @@ export interface StartCodexSessionArgs {
   cwd: string
   model: string
   serviceTier?: ServiceTier
+  mcpToolConfigKey?: string
   sessionToken: string | null
   pendingForkSessionToken?: string | null
 }
@@ -748,7 +750,8 @@ export class CodexAppServerManager {
 
   async startSession(args: StartCodexSessionArgs) {
     const existing = this.sessions.get(args.chatId)
-    if (existing && !existing.closed && existing.cwd === args.cwd && !args.pendingForkSessionToken) {
+    const nextMcpToolConfigKey = args.mcpToolConfigKey ?? ""
+    if (existing && !existing.closed && existing.cwd === args.cwd && existing.mcpToolConfigKey === nextMcpToolConfigKey && !args.pendingForkSessionToken) {
       return
     }
 
@@ -760,6 +763,7 @@ export class CodexAppServerManager {
     const context: SessionContext = {
       chatId: args.chatId,
       cwd: args.cwd,
+      mcpToolConfigKey: nextMcpToolConfigKey,
       child,
       pendingRequests: new Map(),
       pendingTurn: null,
