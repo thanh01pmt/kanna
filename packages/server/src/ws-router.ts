@@ -132,6 +132,7 @@ import type { AgentCoordinator } from "./agent"
 import type { AnalyticsReporter } from "./analytics"
 import { NoopAnalyticsReporter } from "./analytics"
 import type { AppSettingsManager } from "./app-settings"
+import { detectAgentClis, testCustomAgentConnection } from "./agent-cli-detection"
 import type { DiscoveredProject } from "./discovery"
 import { DiffStore } from "./diff-store"
 import { EventStore } from "./event-store"
@@ -665,6 +666,7 @@ export function createWsRouter({
         planMode: false,
       },
     },
+    customAgents: [],
     warning: null,
     filePathDisplay: "~/.kanna/data/settings.json",
   }
@@ -1909,6 +1911,14 @@ export function createWsRouter({
         }
         case "settings.readPiProviderCatalog": {
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: readPiProviderCatalog() })
+          return
+        }
+        case "settings.detectAgentClis": {
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: detectAgentClis() })
+          return
+        }
+        case "settings.testCustomAgent": {
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: testCustomAgentConnection(command.agent) })
           return
         }
         case "settings.writeAppSettings": {

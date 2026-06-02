@@ -46,7 +46,11 @@ import {
   DEFAULT_OPENAI_SDK_MODEL,
   DEFAULT_OPENROUTER_SDK_MODEL,
   PROVIDERS,
+  type AgentCliDetectionSnapshot,
   type AgentProvider,
+  type CustomAgentConfig,
+  type CustomAgentConnectionTestResult,
+  type CustomAgentEnvVar,
   type InstalledSkillSummary,
   type KeybindingAction,
   type LlmProviderKind,
@@ -67,6 +71,7 @@ import { EDITOR_OPTIONS, EditorIcon } from "../components/editor-icons"
 import { Button, buttonVariants } from "../components/ui/button"
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog"
 import { Input } from "../components/ui/input"
+import { Textarea } from "../components/ui/textarea"
 import { SettingsHeaderButton } from "../components/ui/settings-header-button"
 import type { EditorPreset } from "@kanna/shared/protocol"
 import { SegmentedControl } from "../components/ui/segmented-control"
@@ -825,6 +830,59 @@ function StatusPill({ children, tone = "neutral" }: { children: ReactNode; tone?
     >
       {children}
     </span>
+  )
+}
+
+function AgentCliDetectionPill({
+  agent,
+}: {
+  agent: AgentCliDetectionSnapshot["agents"][number] | undefined
+}) {
+  if (!agent) {
+    return <StatusPill>Checking CLI</StatusPill>
+  }
+
+  if (agent.status === "detected") {
+    return <StatusPill tone="good">Detected: {agent.command}</StatusPill>
+  }
+
+  if (agent.status === "built_in") {
+    return <StatusPill tone="good">Built in</StatusPill>
+  }
+
+  return <StatusPill>CLI missing: {agent.candidateCommands.join(" / ")}</StatusPill>
+}
+
+const DEFAULT_CUSTOM_AGENT_ADVANCED = {
+  yolo_id: "",
+  native_skills_dirs: [],
+  behavior_policy: {
+    supports_side_question: false,
+  },
+  description: "",
+}
+
+function createCustomAgentId(displayName: string) {
+  const slug = displayName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
+  return `custom-${slug || "agent"}-${Date.now().toString(36)}`
+}
+
+function CustomAgentCard({ agent }: { agent: CustomAgentConfig }) {
+  return (
+    <div className="rounded-lg border border-border bg-card/30 px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="text-sm font-medium text-foreground">{agent.displayName}</div>
+          <div className="mt-1 font-mono text-xs text-muted-foreground">
+            {agent.command}{agent.args ? ` ${agent.args}` : ""}
+          </div>
+        </div>
+        <StatusPill tone={agent.enabled ? "good" : "neutral"}>{agent.enabled ? "Enabled" : "Disabled"}</StatusPill>
+      </div>
+      {agent.advanced.description ? (
+        <div className="mt-2 text-sm text-muted-foreground">{agent.advanced.description}</div>
+      ) : null}
+    </div>
   )
 }
 
@@ -2591,6 +2649,17 @@ export function SettingsPage() {
   const [llmValidationError, setLlmValidationError] = useState<unknown | null>(null)
   const [llmValidationDialogOpen, setLlmValidationDialogOpen] = useState(false)
   const [piProviderCatalog, setPiProviderCatalog] = useState<ProviderCatalogEntry | null>(null)
+  const [agentCliDetection, setAgentCliDetection] = useState<AgentCliDetectionSnapshot | null>(null)
+  const [agentCliDetectionError, setAgentCliDetectionError] = useState<string | null>(null)
+  const [customAgentDialogOpen, setCustomAgentDialogOpen] = useState(false)
+  const [customAgentDisplayName, setCustomAgentDisplayName] = useState("")
+  const [customAgentCommand, setCustomAgentCommand] = useState("")
+  const [customAgentArgs, setCustomAgentArgs] = useState("")
+  const [customAgentEnv, setCustomAgentEnv] = useState<CustomAgentEnvVar[]>([])
+  const [customAgentAdvanced, setCustomAgentAdvanced] = useState(JSON.stringify(DEFAULT_CUSTOM_AGENT_ADVANCED, null, 2))
+  const [customAgentError, setCustomAgentError] = useState<string | null>(null)
+  const [customAgentTestResult, setCustomAgentTestResult] = useState<CustomAgentConnectionTestResult | null>(null)
+  const [customAgentTesting, setCustomAgentTesting] = useState(false)
   const updateSnapshot = state.updateSnapshot
   const handleWriteAppSettings = state.handleWriteAppSettings
   const handleReadLlmProvider = state.handleReadLlmProvider
@@ -2603,6 +2672,9 @@ export function SettingsPage() {
     return providers
   }, [piProviderCatalog])
   const enabledSettingsProviderCatalogs = useMemo(() => settingsProviderCatalogs.filter((provider) => !provider.disabled), [settingsProviderCatalogs])
+  const agentCliDetectionByProvider = useMemo(() => new Map(
+    (agentCliDetection?.agents ?? []).map((agent) => [agent.provider, agent])
+  ), [agentCliDetection])
   const updateStatusLabel = updateSnapshot?.status === "checking"
     ? "Checking for updates…"
     : updateSnapshot?.status === "updating"
@@ -2701,6 +2773,24 @@ export function SettingsPage() {
       })
       .catch(() => {
         if (!cancelled) setPiProviderCatalog(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isConnecting, selectedPage, state.socket])
+
+  useEffect(() => {
+    if (selectedPage !== "providers" || isConnecting) return
+    let cancelled = false
+    setAgentCliDetectionError(null)
+    void state.socket.command<AgentCliDetectionSnapshot>({ type: "settings.detectAgentClis" })
+      .then((snapshot) => {
+        if (!cancelled) setAgentCliDetection(snapshot)
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        setAgentCliDetection(null)
+        setAgentCliDetectionError(error instanceof Error ? error.message : "Unable to detect local agent CLIs.")
       })
     return () => {
       cancelled = true
@@ -2857,6 +2947,91 @@ export function SettingsPage() {
     void handleWriteAppSettings({ providerDefaults: { [provider]: { planMode } } }).catch((error) => {
       setAppSettingsError(error instanceof Error ? error.message : "Unable to save provider settings.")
     })
+  }
+
+  function resetCustomAgentDialog() {
+    setCustomAgentDisplayName("")
+    setCustomAgentCommand("")
+    setCustomAgentArgs("")
+    setCustomAgentEnv([])
+    setCustomAgentAdvanced(JSON.stringify(DEFAULT_CUSTOM_AGENT_ADVANCED, null, 2))
+    setCustomAgentError(null)
+    setCustomAgentTestResult(null)
+    setCustomAgentTesting(false)
+  }
+
+  function updateCustomAgentEnv(index: number, patch: Partial<CustomAgentEnvVar>) {
+    setCustomAgentEnv((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item))
+  }
+
+  async function handleTestCustomAgent() {
+    try {
+      setCustomAgentTesting(true)
+      setCustomAgentError(null)
+      const result = await state.socket.command<CustomAgentConnectionTestResult>({
+        type: "settings.testCustomAgent",
+        agent: {
+          command: customAgentCommand,
+          args: customAgentArgs,
+          env: customAgentEnv.filter((item) => item.key.trim()),
+        },
+      })
+      setCustomAgentTestResult(result)
+    } catch (error) {
+      setCustomAgentTestResult(null)
+      setCustomAgentError(error instanceof Error ? error.message : "Unable to test custom agent.")
+    } finally {
+      setCustomAgentTesting(false)
+    }
+  }
+
+  async function handleSaveCustomAgent() {
+    const displayName = customAgentDisplayName.trim()
+    const command = customAgentCommand.trim()
+    if (!displayName || !command) {
+      setCustomAgentError("Display name and command are required.")
+      return
+    }
+
+    let advanced: CustomAgentConfig["advanced"]
+    try {
+      const parsed = JSON.parse(customAgentAdvanced) as CustomAgentConfig["advanced"]
+      advanced = {
+        ...DEFAULT_CUSTOM_AGENT_ADVANCED,
+        ...parsed,
+        behavior_policy: {
+          ...DEFAULT_CUSTOM_AGENT_ADVANCED.behavior_policy,
+          ...(parsed?.behavior_policy ?? {}),
+        },
+      }
+    } catch {
+      setCustomAgentError("Advanced JSON is invalid.")
+      return
+    }
+
+    const now = new Date().toISOString()
+    const nextAgent: CustomAgentConfig = {
+      id: createCustomAgentId(displayName),
+      displayName,
+      command,
+      args: customAgentArgs.trim(),
+      env: customAgentEnv.filter((item) => item.key.trim()).map((item) => ({ key: item.key.trim(), value: item.value })),
+      advanced,
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    try {
+      setCustomAgentError(null)
+      await handleWriteAppSettings({
+        customAgents: [...(appSettings?.customAgents ?? []), nextAgent],
+      })
+      setCustomAgentDialogOpen(false)
+      resetCustomAgentDialog()
+    } catch (error) {
+      setCustomAgentError(error instanceof Error ? error.message : "Unable to save custom agent.")
+    }
   }
 
   async function commitKeybindings() {
@@ -3394,7 +3569,10 @@ export function SettingsPage() {
                       description="Saved defaults when using Claude Code."
                       alignStart
                     >
-                      <div className="max-w-[420px]">
+                      <div className="flex max-w-[420px] flex-col gap-3">
+                        <div>
+                          <AgentCliDetectionPill agent={agentCliDetectionByProvider.get("claude")} />
+                        </div>
                         <ChatPreferenceControls
                           availableProviders={settingsProviderCatalogs}
                           selectedProvider="claude"
@@ -3425,7 +3603,10 @@ export function SettingsPage() {
                       description="Saved defaults when using Codex."
                       alignStart
                     >
-                      <div className="max-w-[420px]">
+                      <div className="flex max-w-[420px] flex-col gap-3">
+                        <div>
+                          <AgentCliDetectionPill agent={agentCliDetectionByProvider.get("codex")} />
+                        </div>
                         <ChatPreferenceControls
                           availableProviders={settingsProviderCatalogs}
                           selectedProvider="codex"
@@ -3456,7 +3637,12 @@ export function SettingsPage() {
                       description="Antigravity is temporarily disabled due to agent stability issues."
                       alignStart
                     >
-                      <StatusPill tone="neutral">Disabled</StatusPill>
+                      <div className="flex max-w-[420px] flex-col gap-3">
+                        <div className="flex flex-wrap gap-2">
+                          <StatusPill tone="neutral">Disabled</StatusPill>
+                          <AgentCliDetectionPill agent={agentCliDetectionByProvider.get("antigravity")} />
+                        </div>
+                      </div>
                     </SettingsRow>
 
                     <SettingsRow
@@ -3464,7 +3650,10 @@ export function SettingsPage() {
                       description="Saved defaults when using Pi Agent."
                       alignStart
                     >
-                      <div className="max-w-[420px]">
+                      <div className="flex max-w-[420px] flex-col gap-3">
+                        <div>
+                          <AgentCliDetectionPill agent={agentCliDetectionByProvider.get("pi")} />
+                        </div>
                         <ChatPreferenceControls
                           availableProviders={settingsProviderCatalogs}
                           selectedProvider="pi"
@@ -3485,6 +3674,46 @@ export function SettingsPage() {
                           includePlanMode
                           className="justify-start flex-wrap"
                         />
+                      </div>
+                    </SettingsRow>
+
+                    {agentCliDetectionError ? (
+                      <SettingsRow
+                        title="Local Agent Detection"
+                        description={agentCliDetectionError}
+                        alignStart
+                      >
+                        <StatusPill tone="neutral">Unavailable</StatusPill>
+                      </SettingsRow>
+                    ) : null}
+
+                    <SettingsRow
+                      title="Custom Agents"
+                      description="Register local agent CLIs that Kanna should remember for future adapter support."
+                      alignStart
+                    >
+                      <div className="flex w-full max-w-[520px] flex-col gap-3">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="w-fit gap-2"
+                          onClick={() => {
+                            resetCustomAgentDialog()
+                            setCustomAgentDialogOpen(true)
+                          }}
+                        >
+                          <Plus className="size-4" />
+                          Add Custom Agent
+                        </Button>
+                        {(appSettings?.customAgents ?? []).length > 0 ? (
+                          <div className="flex flex-col gap-2">
+                            {(appSettings?.customAgents ?? []).map((agent) => (
+                              <CustomAgentCard key={agent.id} agent={agent} />
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-sm text-muted-foreground">No custom agents configured.</div>
+                        )}
                       </div>
                     </SettingsRow>
 
@@ -3670,6 +3899,128 @@ export function SettingsPage() {
           </div>
         </div>
       ) : null}
+      <Dialog open={customAgentDialogOpen} onOpenChange={(open) => {
+        setCustomAgentDialogOpen(open)
+        if (!open) resetCustomAgentDialog()
+      }}>
+        <DialogContent size="lg">
+          <DialogHeader>
+            <DialogTitle>Detect Custom Agent</DialogTitle>
+          </DialogHeader>
+          <DialogBody className="space-y-4">
+            <div className="grid gap-2">
+              <label className="text-sm font-medium text-foreground" htmlFor="custom-agent-name">Display Name</label>
+              <Input
+                id="custom-agent-name"
+                value={customAgentDisplayName}
+                onChange={(event) => setCustomAgentDisplayName(event.target.value)}
+                placeholder="e.g. My Agent"
+              />
+            </div>
+            <div className="grid gap-2">
+              <label className="text-sm font-medium text-foreground" htmlFor="custom-agent-command">Command</label>
+              <Input
+                id="custom-agent-command"
+                value={customAgentCommand}
+                onChange={(event) => {
+                  setCustomAgentCommand(event.target.value)
+                  setCustomAgentTestResult(null)
+                }}
+                placeholder="e.g. my-agent or /usr/local/bin/my-agent"
+              />
+              <div className="text-xs text-muted-foreground">The executable command to run the agent CLI.</div>
+            </div>
+            <div className="grid gap-2">
+              <label className="text-sm font-medium text-foreground" htmlFor="custom-agent-args">Arguments</label>
+              <Input
+                id="custom-agent-args"
+                value={customAgentArgs}
+                onChange={(event) => setCustomAgentArgs(event.target.value)}
+                placeholder="e.g. --acp --verbose"
+              />
+              <div className="text-xs text-muted-foreground">Space-separated arguments passed to the command.</div>
+            </div>
+            <div className="grid gap-3">
+              <div className="text-sm font-medium text-foreground">Environment Variables</div>
+              {customAgentEnv.map((item, index) => (
+                <div key={index} className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                  <Input
+                    value={item.key}
+                    onChange={(event) => updateCustomAgentEnv(index, { key: event.target.value })}
+                    placeholder="KEY"
+                  />
+                  <Input
+                    value={item.value}
+                    onChange={(event) => updateCustomAgentEnv(index, { value: event.target.value })}
+                    placeholder="value"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setCustomAgentEnv((items) => items.filter((_, itemIndex) => itemIndex !== index))}
+                    aria-label="Remove environment variable"
+                  >
+                    <X className="size-4" />
+                  </Button>
+                </div>
+              ))}
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-fit gap-2"
+                onClick={() => setCustomAgentEnv((items) => [...items, { key: "", value: "" }])}
+              >
+                <Plus className="size-4" />
+                Add Variable
+              </Button>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full gap-2"
+              disabled={customAgentTesting}
+              onClick={() => { void handleTestCustomAgent() }}
+            >
+              {customAgentTesting ? <Loader2 className="size-4 animate-spin" /> : null}
+              Test Connection
+            </Button>
+            {customAgentTestResult ? (
+              <div className={cn(
+                "rounded-lg border px-4 py-3 text-sm",
+                customAgentTestResult.ok
+                  ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-500"
+                  : "border-destructive/20 bg-destructive/5 text-destructive"
+              )}>
+                {customAgentTestResult.message}
+              </div>
+            ) : null}
+            <div className="grid gap-2">
+              <label className="text-sm font-medium text-foreground" htmlFor="custom-agent-advanced">Advanced JSON</label>
+              <Textarea
+                id="custom-agent-advanced"
+                value={customAgentAdvanced}
+                onChange={(event) => setCustomAgentAdvanced(event.target.value)}
+                className="min-h-[180px] font-mono text-xs"
+                spellCheck={false}
+              />
+            </div>
+            {customAgentError ? (
+              <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                {customAgentError}
+              </div>
+            ) : null}
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setCustomAgentDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => { void handleSaveCustomAgent() }}>
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={analyticsDialogOpen} onOpenChange={setAnalyticsDialogOpen}>
         <DialogContent size="lg">
           <DialogBody className="space-y-4">

@@ -16,6 +16,8 @@ import type {
   StandaloneTranscriptExportResult,
   UpdateSnapshot,
   EditorPreset,
+  CustomAgentConfig,
+  CustomAgentConnectionTestResult,
   WorkflowRunProjection,
   FlowEdgeProvenance,
   WorkflowMarketplaceMetadata,
@@ -131,6 +133,8 @@ export type ClientCommand =
   | { type: "settings.writeKeybindings"; bindings: KeybindingsSnapshot["bindings"] }
   | { type: "settings.readAppSettings" }
   | { type: "settings.readPiProviderCatalog" }
+  | { type: "settings.detectAgentClis" }
+  | { type: "settings.testCustomAgent"; agent: Pick<CustomAgentConfig, "command" | "args" | "env"> }
   | { type: "settings.writeAppSettings"; analyticsEnabled: boolean }
   | { type: "settings.writeAppSettingsPatch"; patch: AppSettingsPatch }
   | { type: "settings.readLlmProvider" }
@@ -306,7 +310,7 @@ export type ServerSnapshot =
 export type ServerEnvelope =
   | { v: 1; type: "snapshot"; id: string; snapshot: ServerSnapshot }
   | { v: 1; type: "event"; id: string; event: TerminalEvent }
-  | { v: 1; type: "ack"; id: string; result?: unknown | ChatHistoryPage | StandaloneTranscriptExportResult }
+  | { v: 1; type: "ack"; id: string; result?: unknown | ChatHistoryPage | StandaloneTranscriptExportResult | CustomAgentConnectionTestResult }
   | { v: 1; type: "error"; id?: string; message: string }
 
 export function isClientEnvelope(value: unknown): value is ClientEnvelope {

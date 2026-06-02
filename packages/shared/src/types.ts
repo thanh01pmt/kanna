@@ -288,6 +288,52 @@ export interface ProviderCatalogEntry {
   efforts: ProviderEffortOption[]
 }
 
+export type AgentCliDetectionStatus = "detected" | "missing" | "built_in"
+
+export interface AgentCliDetection {
+  provider: AgentProvider
+  label: string
+  status: AgentCliDetectionStatus
+  command: string
+  commandPath: string | null
+  candidateCommands: string[]
+  detectedAt: string
+}
+
+export interface AgentCliDetectionSnapshot {
+  agents: AgentCliDetection[]
+}
+
+export interface CustomAgentEnvVar {
+  key: string
+  value: string
+}
+
+export interface CustomAgentConfig {
+  id: string
+  displayName: string
+  command: string
+  args: string
+  env: CustomAgentEnvVar[]
+  advanced: {
+    yolo_id: string
+    native_skills_dirs: string[]
+    behavior_policy: {
+      supports_side_question: boolean
+    }
+    description: string
+  } & Record<string, unknown>
+  enabled: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CustomAgentConnectionTestResult {
+  ok: boolean
+  commandPath: string | null
+  message: string
+}
+
 export const PROVIDERS: ProviderCatalogEntry[] = [
   {
     id: "claude",
@@ -527,6 +573,7 @@ export interface AppSettingsSnapshot {
   }
   defaultProvider: DefaultProviderPreference
   providerDefaults: ChatProviderPreferences
+  customAgents: CustomAgentConfig[]
   warning: string | null
   filePathDisplay: string
 }
@@ -546,6 +593,7 @@ export interface AppSettingsPatch {
     antigravity?: Partial<ProviderPreference<AntigravityModelOptions>>
     pi?: Partial<ProviderPreference<PiModelOptions>>
   }
+  customAgents?: CustomAgentConfig[]
 }
 
 export interface LlmProviderFile {

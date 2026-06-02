@@ -28,6 +28,8 @@ import {
   type ChatSoundPreference,
   type ClaudeModelOptions,
   type CodexModelOptions,
+  type CustomAgentConfig,
+  type CustomAgentEnvVar,
   type DefaultProviderPreference,
   type EditorPreset,
   type PiModelOptions,
@@ -56,6 +58,7 @@ interface AppSettingsFile {
     antigravity?: Partial<ProviderPreference<Partial<AntigravityModelOptions>>> & { effort?: unknown }
     pi?: Partial<ProviderPreference<Partial<PiModelOptions>>> & { effort?: unknown }
   }
+  customAgents?: unknown
 }
 
 interface AppSettingsState extends AppSettingsSnapshot {
@@ -128,6 +131,17 @@ function createDefaultProviderDefaults(): ChatProviderPreferences {
       modelOptions: { ...DEFAULT_PI_MODEL_OPTIONS },
       planMode: false,
     },
+  }
+}
+
+function defaultCustomAgentAdvanced() {
+  return {
+    yolo_id: "",
+    native_skills_dirs: [] as string[],
+    behavior_policy: {
+      supports_side_question: false,
+    },
+    description: "",
   }
 }
 
@@ -276,6 +290,69 @@ function normalizeProviderDefaults(value: AppSettingsFile["providerDefaults"] | 
   }
 }
 
+function normalizeCustomAgentEnv(value: unknown): CustomAgentEnvVar[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return []
+    const record = entry as Record<string, unknown>
+    const key = typeof record.key === "string" ? record.key.trim() : ""
+    const envValue = typeof record.value === "string" ? record.value : ""
+    return key ? [{ key, value: envValue }] : []
+  })
+}
+
+function normalizeCustomAgentAdvanced(value: unknown): CustomAgentConfig["advanced"] {
+  const defaults = defaultCustomAgentAdvanced()
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return defaults
+  }
+
+  const record = value as Record<string, unknown>
+  const behaviorPolicy = record.behavior_policy && typeof record.behavior_policy === "object" && !Array.isArray(record.behavior_policy)
+    ? record.behavior_policy as Record<string, unknown>
+    : {}
+
+  return {
+    ...record,
+    yolo_id: typeof record.yolo_id === "string" ? record.yolo_id : defaults.yolo_id,
+    native_skills_dirs: Array.isArray(record.native_skills_dirs)
+      ? record.native_skills_dirs.filter((item): item is string => typeof item === "string")
+      : defaults.native_skills_dirs,
+    behavior_policy: {
+      ...behaviorPolicy,
+      supports_side_question: behaviorPolicy.supports_side_question === true,
+    },
+    description: typeof record.description === "string" ? record.description : defaults.description,
+  }
+}
+
+function normalizeCustomAgents(value: unknown): CustomAgentConfig[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return []
+    const record = entry as Record<string, unknown>
+    const command = typeof record.command === "string" ? record.command.trim() : ""
+    const displayName = typeof record.displayName === "string" ? record.displayName.trim() : ""
+    if (!command || !displayName) return []
+
+    const now = new Date().toISOString()
+    const id = typeof record.id === "string" && record.id.trim()
+      ? record.id.trim()
+      : `custom-${displayName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "agent"}`
+    return [{
+      id,
+      displayName,
+      command,
+      args: typeof record.args === "string" ? record.args : "",
+      env: normalizeCustomAgentEnv(record.env),
+      advanced: normalizeCustomAgentAdvanced(record.advanced),
+      enabled: record.enabled !== false,
+      createdAt: typeof record.createdAt === "string" ? record.createdAt : now,
+      updatedAt: typeof record.updatedAt === "string" ? record.updatedAt : now,
+    }]
+  })
+}
+
 function toFilePayload(state: AppSettingsState) {
   return {
     analyticsEnabled: state.analyticsEnabled,
@@ -288,6 +365,7 @@ function toFilePayload(state: AppSettingsState) {
     editor: state.editor,
     defaultProvider: state.defaultProvider,
     providerDefaults: state.providerDefaults,
+    customAgents: state.customAgents,
   }
 }
 
@@ -302,6 +380,7 @@ function toSnapshot(state: AppSettingsState): AppSettingsSnapshot {
     editor: state.editor,
     defaultProvider: state.defaultProvider,
     providerDefaults: state.providerDefaults,
+    customAgents: state.customAgents,
     warning: state.warning,
     filePathDisplay: state.filePathDisplay,
   }
@@ -352,6 +431,7 @@ function normalizeAppSettings(
     },
     defaultProvider: normalizeDefaultProvider(source?.defaultProvider),
     providerDefaults: normalizeProviderDefaults(source?.providerDefaults),
+    customAgents: normalizeCustomAgents(source?.customAgents),
     warning: null,
     filePathDisplay: formatDisplayPath(filePath),
   }
@@ -380,6 +460,7 @@ function toComparablePayload(source: AppSettingsFile) {
     editor: source.editor,
     defaultProvider: source.defaultProvider,
     providerDefaults: source.providerDefaults,
+    customAgents: source.customAgents,
   }
 }
 
@@ -429,6 +510,7 @@ function applyPatch(state: AppSettingsState, patch: AppSettingsPatch): AppSettin
         },
       },
     },
+    customAgents: patch.customAgents ?? state.customAgents,
   }, state.filePathDisplay).payload
 }
 

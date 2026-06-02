@@ -117,6 +117,7 @@ const DEFAULT_APP_SETTINGS_SNAPSHOT: AppSettingsSnapshot = {
       planMode: false,
     },
   },
+  customAgents: [],
   warning: null,
   filePathDisplay: "~/.kanna/data/settings.json",
 }

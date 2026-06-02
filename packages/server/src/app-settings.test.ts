@@ -66,6 +66,7 @@ function expectedSettingsSnapshot(filePath: string, overrides: Partial<AppSettin
         planMode: false,
       },
     },
+    customAgents: [],
     warning: null,
     filePathDisplay: filePath,
     ...overrides,
