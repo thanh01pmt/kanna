@@ -1,7 +1,7 @@
 # nested-workflow-views Specification
 
 ## Purpose
-TBD - created by archiving change add-nested-workflow-detail-views. Update Purpose after archive.
+Define how the workflow tracker separates project-level workflow overview from nested workflow detail views, including breadcrumb navigation and compact progress/artifact summaries across levels.
 ## Requirements
 ### Requirement: Main Flow Overview
 The system SHALL provide a main flow overview that shows project-level workflow nodes and their high-level status without forcing users to inspect all nested steps at once.
@@ -32,4 +32,3 @@ The system SHALL show status counts and produced artifact summaries at both main
 #### Scenario: Summarizing a nested workflow
 - **WHEN** a nested workflow has completed child steps and produced artifacts
 - **THEN** the parent workflow node SHALL show a concise summary of progress and outputs.
-

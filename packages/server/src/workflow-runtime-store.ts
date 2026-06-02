@@ -97,20 +97,28 @@ function checkScopeOverlap(scopeA: string, scopeB: string): boolean {
   const [typeB, valB] = scopeB.split(":")
   if (!valA || !valB) return false
 
+  const normalize = (value: string) => value.replaceAll("\\", "/").replace(/^\.\/+/, "").replace(/\/+$/, "")
+  const pathA = normalize(valA)
+  const pathB = normalize(valB)
+  const containsPath = (directory: string, filePath: string) => filePath === directory || filePath.startsWith(`${directory}/`)
+
   if (typeA === "file" && typeB === "file") {
-    return valA === valB
+    return pathA === pathB
   }
   if (typeA === "directory" && typeB === "file") {
-    return valB.startsWith(valA)
+    return containsPath(pathA, pathB)
   }
   if (typeA === "file" && typeB === "directory") {
-    return valA.startsWith(valB)
+    return containsPath(pathB, pathA)
   }
   if (typeA === "directory" && typeB === "directory") {
-    return valA.startsWith(valB) || valB.startsWith(valA)
+    return containsPath(pathA, pathB) || containsPath(pathB, pathA)
   }
   if (typeA === "glob" || typeB === "glob") {
-    return valA.includes(valB) || valB.includes(valA)
+    const globValue = typeA === "glob" ? pathA : pathB
+    const otherValue = typeA === "glob" ? pathB : pathA
+    const prefix = globValue.split("*")[0]?.replace(/\/+$/, "")
+    return Boolean(prefix && containsPath(prefix, otherValue)) || globValue === otherValue
   }
   return false
 }
@@ -429,19 +437,17 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
             const scopeA = `${outA.type}:${outA.path}`
             const scopeB = `${outB.type}:${outB.path}`
             if (checkScopeOverlap(scopeA, scopeB)) {
-              if (outA.ownershipClass === "canonical" || outB.ownershipClass === "canonical") {
-                if (outA.ownershipClass === "shared" && outB.ownershipClass === "shared") {
-                  continue
-                }
-                lockConflicts.push({
-                  id: `conflict-${wIdA}-${wIdB}-${outA.path}`,
-                  scope: scopeA,
-                  blockingWorkflowId: wIdA,
-                  requestingWorkflowId: wIdB,
-                  type: outA.path === outB.path ? "ownership" : "scope_overlap",
-                  artifactPath: outA.path
-                })
+              if (outA.ownershipClass === "shared" && outB.ownershipClass === "shared") {
+                continue
               }
+              lockConflicts.push({
+                id: `conflict-${wIdA}-${wIdB}-${outA.path}`,
+                scope: scopeA,
+                blockingWorkflowId: wIdA,
+                requestingWorkflowId: wIdB,
+                type: outA.path === outB.path && (outA.ownershipClass === "canonical" || outB.ownershipClass === "canonical") ? "ownership" : "scope_overlap",
+                artifactPath: outA.path
+              })
             }
           }
         }
@@ -480,7 +486,8 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
     this.seedIfNeeded()
     
     // We should compute the flow graph from registered workflows and edges
-    const registeredSummaries = await this.listDefinitions(projectId)
+    const definitions = await this.listDefinitions(projectId)
+    const registeredSummaries = definitions.filter((definition) => definition.isRegistered && definition.isEnabled)
     const manifests = new Map<string, WorkflowManifest>()
     for (const summary of registeredSummaries) {
       const def = this.definitionsById.get(summary.id)
@@ -567,18 +574,7 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
   }
 
   async listDefinitions(projectId?: string): Promise<WorkflowDefinitionSummary[]> {
-    if (this.definitionsById.size === 0) {
-      const seed = createCurriculumWorkflowSeed(projectId ?? "catalog")
-      this.definitionsById.set(seed.slug, {
-        id: seed.slug,
-        slug: seed.slug,
-        name: seed.name,
-        description: seed.description,
-        currentVersion: seed.version,
-        currentVersionId: seed.version,
-        workflowType: "create-course",
-      })
-    }
+    this.seedIfNeeded()
     const registrations = projectId ? this.registrationsByProjectId.get(projectId) : undefined
     return [...this.definitionsById.values()].map(({ manifest: _manifest, ...definition }) => {
       const registration = registrations?.get(definition.id)
@@ -595,15 +591,16 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
   }
 
   async publishManifest(args: { projectId?: string; manifest: WorkflowManifest }): Promise<WorkflowDefinitionSummary> {
-    const slug = slugifyWorkflowName(args.manifest.name)
+    const manifestName = workflowManifestName(args.manifest)
+    const slug = slugifyWorkflowName(manifestName)
     const definition = {
       id: slug,
       slug,
-      name: args.manifest.name,
+      name: manifestName,
       description: args.manifest.description,
       currentVersion: args.manifest.version,
       currentVersionId: args.manifest.version,
-      workflowType: args.manifest.name,
+      workflowType: manifestName,
       manifest: args.manifest,
     }
     this.definitionsById.set(slug, definition)
@@ -617,14 +614,21 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
     }
     const definition = this.definitionsById.get(args.workflowDefinitionId)
     const manifest = definition?.manifest
+    const { lockConflicts } = this.computeLocksAndConflicts(args.projectId)
+    const blockingConflict = lockConflicts.find(
+      (conflict) => conflict.requestingWorkflowId === args.workflowDefinitionId || conflict.blockingWorkflowId === args.workflowDefinitionId
+    )
+    if (blockingConflict) {
+      throw new Error(`Workflow definition ${args.workflowDefinitionId} is blocked by ${blockingConflict.type} conflict on ${blockingConflict.artifactPath ?? blockingConflict.scope}`)
+    }
     const projection = manifest
       ? {
           ...createSeedWorkflowProjection(args.projectId),
           id: randomUUID(),
           projectId: args.projectId,
           chatId: args.chatId,
-          workflowType: manifest.name,
-          title: manifest.name,
+          workflowType: workflowManifestName(manifest, definition?.name),
+          title: workflowManifestName(manifest, definition?.name),
           root: buildNodeTree(buildManifestNodeRows(manifest).map((node) => ({
             id: node.id,
             parent_id: node.parent_id,
@@ -1021,6 +1025,14 @@ function slugifyWorkflowName(value: string) {
     .replace(/^-+|-+$/g, "") || "workflow"
 }
 
+function workflowManifestName(manifest: WorkflowManifest, fallback = "Workflow") {
+  return typeof manifest.name === "string" && manifest.name.trim() ? manifest.name : fallback
+}
+
+function workflowManifestArtifacts(manifest: WorkflowManifest) {
+  return Array.isArray(manifest.artifacts) ? manifest.artifacts : []
+}
+
 function artifactKindFromManifestId(id: string) {
   return id.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "artifact"
 }
@@ -1064,13 +1076,14 @@ function buildManifestNodeRows(manifest: WorkflowManifest): WorkflowSeedNodeRow[
     return buildManifestNodeDefinitionRows(manifest.nodes)
   }
 
-  const workflowSlug = slugifyWorkflowName(manifest.name)
+  const manifestName = workflowManifestName(manifest)
+  const workflowSlug = slugifyWorkflowName(manifestName)
   const rootId = `wf_${workflowSlug.replaceAll("-", "_")}`
   const rows: WorkflowSeedNodeRow[] = [{
     id: rootId,
     parent_id: null,
     node_type: "workflow",
-    name: manifest.name,
+    name: manifestName,
     status: "running",
     source: "imported",
     order_index: 0,
@@ -1078,7 +1091,8 @@ function buildManifestNodeRows(manifest: WorkflowManifest): WorkflowSeedNodeRow[
     log_summary: manifest.description ?? "Imported workflow manifest.",
   }]
 
-  manifest.artifacts.forEach((artifact, index) => {
+  const artifacts = workflowManifestArtifacts(manifest)
+  artifacts.forEach((artifact, index) => {
     const artifactKind = artifactKindFromManifestId(artifact.id)
     rows.push({
       id: `artifact_${artifactKind}`,
@@ -1097,7 +1111,7 @@ function buildManifestNodeRows(manifest: WorkflowManifest): WorkflowSeedNodeRow[
     })
   })
 
-  if (manifest.artifacts.length === 0) {
+  if (artifacts.length === 0) {
     rows[0] = { ...rows[0], children_sealed: false, log_summary: "No artifact definitions were extracted yet; horizon remains open." }
   }
 
@@ -1116,7 +1130,7 @@ function buildManifestArtifacts(projectId: string, manifest: WorkflowManifest): 
   }
   visit(manifest.nodes)
 
-  return manifest.artifacts.map((artifact) => {
+  return workflowManifestArtifacts(manifest).map((artifact) => {
     const kind = artifactKindFromManifestId(artifact.id)
     return {
       id: `${projectId}_${kind}`,

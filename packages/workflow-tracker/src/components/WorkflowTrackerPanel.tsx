@@ -239,106 +239,90 @@ function WorkflowNodeRow({
 
   return (
     <div>
-      <button
-        type="button"
+      <div
         className={cn(
           "group flex w-full items-start gap-2 border-b border-border/70 px-3 py-2 text-left transition-colors hover:bg-muted/45",
           isSelected && "bg-muted/70",
           node.status === "horizon" && "opacity-70"
         )}
         style={{ paddingLeft: `${12 + depth * 16}px` }}
-        onClick={() => {
-          onSelectNode?.(node)
-          if (hasChildren) setOpen((value) => !value)
-        }}
       >
-        <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground">
-          {hasChildren ? <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-90")} /> : <StatusGlyph status={node.status} />}
-        </span>
-        {hasChildren ? <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center"><StatusGlyph status={node.status} /></span> : null}
-        <span className="min-w-0 flex-1">
-          <span className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-sm font-medium text-foreground">{node.name}</span>
-            <span className={cn("shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.04em] font-mono", statusBadgeClass(node.status))}>
-              {STATUS_LABEL[node.status]}
-            </span>
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-start gap-2 text-left"
+          onClick={() => {
+            onSelectNode?.(node)
+            if (hasChildren) setOpen((value) => !value)
+          }}
+        >
+          <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground">
+            {hasChildren ? <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-90")} /> : <StatusGlyph status={node.status} />}
           </span>
-          <NodeMeta node={node} densityMode={densityMode} />
-          
-          {hasChildren && !isCompact && (
-            <div className="mt-1 flex items-center gap-1.5 text-[10.5px] text-muted-foreground font-medium bg-muted/30 px-1.5 py-0.5 rounded-md w-fit">
-              <span>{(() => {
-                const cCounts = countLocalChildren(node)
-                return `${cCounts.done}/${cCounts.known} steps done`
-              })()}</span>
-              {(() => {
-                function countArtifacts(n: WorkflowNode): number {
-                  let count = n.artifacts?.length ?? 0
-                  if (n.children) {
-                    for (const child of n.children) {
-                      count += countArtifacts(child)
+          {hasChildren ? <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center"><StatusGlyph status={node.status} /></span> : null}
+          <span className="min-w-0 flex-1">
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-sm font-medium text-foreground">{node.name}</span>
+              <span className={cn("shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.04em] font-mono", statusBadgeClass(node.status))}>
+                {STATUS_LABEL[node.status]}
+              </span>
+            </span>
+            <NodeMeta node={node} densityMode={densityMode} />
+            
+            {hasChildren && !isCompact && (
+              <div className="mt-1 flex items-center gap-1.5 text-[10.5px] text-muted-foreground font-medium bg-muted/30 px-1.5 py-0.5 rounded-md w-fit">
+                <span>{(() => {
+                  const cCounts = countLocalChildren(node)
+                  return `${cCounts.done}/${cCounts.known} steps done`
+                })()}</span>
+                {(() => {
+                  function countArtifacts(n: WorkflowNode): number {
+                    let count = n.artifacts?.length ?? 0
+                    if (n.children) {
+                      for (const child of n.children) {
+                        count += countArtifacts(child)
+                      }
                     }
+                    return count
                   }
-                  return count
-                }
-                const artCount = countArtifacts(node)
-                return artCount > 0 ? (
-                  <>
-                    <span>•</span>
-                    <span className="text-emerald-500">{artCount} artifact{artCount > 1 ? 's' : ''}</span>
-                  </>
-                ) : null
-              })()}
-            </div>
-          )}
+                  const artCount = countArtifacts(node)
+                  return artCount > 0 ? (
+                    <>
+                      <span>•</span>
+                      <span className="text-emerald-500">{artCount} artifact{artCount > 1 ? 's' : ''}</span>
+                    </>
+                  ) : null
+                })()}
+              </div>
+            )}
 
-          {node.condition && !isCompact ? <div className="mt-1 line-clamp-2 text-[11px] text-muted-foreground font-mono">if: {node.condition}</div> : null}
-          {node.logSummary && !isCompact ? <div className="mt-1 line-clamp-2 text-xs text-muted-foreground font-mono">{node.logSummary}</div> : null}
-          {node.artifacts?.length && !isCompact ? <div className="mt-2 flex flex-col gap-1.5">{node.artifacts.map((artifact) => <ArtifactChip key={artifact.id} artifact={artifact} densityMode={densityMode} actions={actions} />)}</div> : null}
-        </span>
+            {node.condition && !isCompact ? <div className="mt-1 line-clamp-2 text-[11px] text-muted-foreground font-mono">if: {node.condition}</div> : null}
+            {node.logSummary && !isCompact ? <div className="mt-1 line-clamp-2 text-xs text-muted-foreground font-mono">{node.logSummary}</div> : null}
+            {node.artifacts?.length && !isCompact ? <div className="mt-2 flex flex-col gap-1.5">{node.artifacts.map((artifact) => <ArtifactChip key={artifact.id} artifact={artifact} densityMode={densityMode} actions={actions} />)}</div> : null}
+          </span>
+        </button>
         <div className="flex items-center gap-1 shrink-0">
           {hasChildren && onZoomIn ? (
-            <span
-              role="button"
-              tabIndex={0}
+            <button
+              type="button"
               className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-background hover:text-foreground group-hover:opacity-100"
               title="Inspect sub-flow"
-              onClick={(event) => {
-                event.stopPropagation()
-                onZoomIn(node)
-              }}
-              onKeyDown={(event) => {
-                if (event.key !== "Enter" && event.key !== " ") return
-                event.preventDefault()
-                event.stopPropagation()
-                onZoomIn(node)
-              }}
+              onClick={() => onZoomIn(node)}
             >
               <Eye className="h-3.5 w-3.5" />
-            </span>
+            </button>
           ) : null}
           {canRerun ? (
-            <span
-              role="button"
-              tabIndex={0}
+            <button
+              type="button"
               className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-background hover:text-foreground group-hover:opacity-100"
               title="Rerun node"
-              onClick={(event) => {
-                event.stopPropagation()
-                onRerunNode?.(node)
-              }}
-              onKeyDown={(event) => {
-                if (event.key !== "Enter" && event.key !== " ") return
-                event.preventDefault()
-                event.stopPropagation()
-                onRerunNode?.(node)
-              }}
+              onClick={() => onRerunNode?.(node)}
             >
               <RefreshCw className="h-3.5 w-3.5" />
-            </span>
+            </button>
           ) : null}
         </div>
-      </button>
+      </div>
       {hasChildren && open ? (
         <div>
           {node.children?.map((child) => (

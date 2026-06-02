@@ -1,7 +1,7 @@
 # workflow-locks-conflicts Specification
 
 ## Purpose
-TBD - created by archiving change add-workflow-locks-and-conflict-resolution. Update Purpose after archive.
+Define artifact ownership, workflow output locks, conflict detection, shared-output exceptions, and recovery behavior for interrupted workflow locks.
 ## Requirements
 ### Requirement: Artifact Ownership Enforcement
 The system SHALL enforce ownership rules for canonical artifacts so only the owner workflow may directly create or edit them.
@@ -39,4 +39,3 @@ The system SHALL support recovery for locks held by interrupted or abandoned wor
 - **WHEN** a workflow run is interrupted while holding a lock
 - **THEN** the system SHALL show the lock as recoverable
 - **AND** allow the user or permitted policy to release or resume it safely.
-

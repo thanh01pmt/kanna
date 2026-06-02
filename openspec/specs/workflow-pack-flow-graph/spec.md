@@ -1,7 +1,7 @@
 # workflow-pack-flow-graph Specification
 
 ## Purpose
-TBD - created by archiving change add-workflow-pack-and-flow-graph. Update Purpose after archive.
+Define workflow packs, project workflow registration, and project flow graph relationships between registered workflows, including explicit, inferred, and AI-suggested edge handling.
 ## Requirements
 ### Requirement: Workflow Packs
 The system SHALL allow related workflows to be grouped into workflow packs that can be registered into a project together.
@@ -40,4 +40,3 @@ The system SHALL allow AI to suggest project flow graph edges, but suggested edg
 - **WHEN** AI suggests a flow edge
 - **AND** the user approves it
 - **THEN** the system SHALL store the edge as approved and include it in the canonical project flow graph.
-
