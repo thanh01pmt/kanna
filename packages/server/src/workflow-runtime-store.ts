@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { createHash, randomUUID } from "node:crypto"
 import path from "node:path"
 import { createClient } from "@supabase/supabase-js"
-import type { AgentProvider, TranscriptEntry, WorkflowArtifactImpact, WorkflowArtifactRef, WorkflowDefinitionSummary, WorkflowNode, WorkflowRunProjection, WorkflowPack, ProjectFlowEdge, FlowEdgeProvenance, FlowEdgeStatus } from "@kanna/shared/types"
+import type { AgentProvider, TranscriptEntry, WorkflowArtifactImpact, WorkflowArtifactRef, WorkflowDefinitionSummary, WorkflowNode, WorkflowRunProjection, WorkflowPack, ProjectFlowEdge, FlowEdgeProvenance, FlowEdgeStatus, WorkflowLock, WorkflowLockConflict } from "@kanna/shared/types"
 import type { WorkflowManifest, WorkflowNodeDefinition } from "@kanna/shared/workflow-schema"
 import { createCurriculumWorkflowSeed, type WorkflowSeedNodeRow } from "./workflow-platform/curriculum-seed"
 
@@ -89,6 +89,30 @@ export interface WorkflowRuntimeStore {
   removeFlowEdge?(args: { projectId: string; sourceWorkflowDefinitionId: string; targetWorkflowDefinitionId: string; provenance: FlowEdgeProvenance }): Promise<void>
   approveFlowEdge?(args: { projectId: string; edgeId: string }): Promise<void>
   rejectFlowEdge?(args: { projectId: string; edgeId: string }): Promise<void>
+  recoverLock?(args: { projectId: string; lockId: string }): Promise<void>
+}
+
+function checkScopeOverlap(scopeA: string, scopeB: string): boolean {
+  const [typeA, valA] = scopeA.split(":")
+  const [typeB, valB] = scopeB.split(":")
+  if (!valA || !valB) return false
+
+  if (typeA === "file" && typeB === "file") {
+    return valA === valB
+  }
+  if (typeA === "directory" && typeB === "file") {
+    return valB.startsWith(valA)
+  }
+  if (typeA === "file" && typeB === "directory") {
+    return valA.startsWith(valB)
+  }
+  if (typeA === "directory" && typeB === "directory") {
+    return valA.startsWith(valB) || valB.startsWith(valA)
+  }
+  if (typeA === "glob" || typeB === "glob") {
+    return valA.includes(valB) || valB.includes(valA)
+  }
+  return false
 }
 
 function inferArtifactFlowEdges(
@@ -245,6 +269,7 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
   }>>()
   private readonly packs = new Map<string, WorkflowPack>()
   private readonly projectEdges = new Map<string, Map<string, ProjectFlowEdge>>()
+  private readonly locksByProjectId = new Map<string, WorkflowLock[]>()
 
   private seedIfNeeded() {
     if (this.definitionsById.size > 0) return
@@ -355,6 +380,102 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
     this.packs.set(pack.id, pack)
   }
 
+  private computeLocksAndConflicts(projectId: string): { locks: WorkflowLock[]; lockConflicts: WorkflowLockConflict[] } {
+    const locks: WorkflowLock[] = this.locksByProjectId.get(projectId) ?? []
+    const lockConflicts: WorkflowLockConflict[] = []
+
+    // 1. Update run statuses/locks
+    const activeProjection = this.projectionsByProjectId.get(projectId)
+    if (activeProjection) {
+      const runStatus = activeProjection.status
+      for (const lock of locks) {
+        if (lock.workflowId === activeProjection.id) {
+          if (runStatus === "failed") {
+            lock.status = "recoverable"
+          } else if (runStatus === "running") {
+            lock.status = "active"
+          }
+        }
+      }
+    }
+
+    // 2. Sibling output conflicts
+    const registrations = this.registrationsByProjectId.get(projectId) ?? new Map()
+    const registeredWorkflows = Array.from(registrations.keys())
+
+    const outputsByWorkflow = new Map<string, Array<{ path: string; type: string; ownershipClass: string }>>()
+    for (const defId of registeredWorkflows) {
+      const definition = this.definitionsById.get(defId)
+      if (definition?.manifest?.outputs) {
+        const outputs = definition.manifest.outputs.map((out: any) => ({
+          path: out.path,
+          type: out.type,
+          ownershipClass: out.ownershipClass ?? "canonical"
+        }))
+        outputsByWorkflow.set(defId, outputs)
+      }
+    }
+
+    const workflowIds = Array.from(outputsByWorkflow.keys())
+    for (let i = 0; i < workflowIds.length; i++) {
+      for (let j = i + 1; j < workflowIds.length; j++) {
+        const wIdA = workflowIds[i]
+        const wIdB = workflowIds[j]
+        const outsA = outputsByWorkflow.get(wIdA) ?? []
+        const outsB = outputsByWorkflow.get(wIdB) ?? []
+
+        for (const outA of outsA) {
+          for (const outB of outsB) {
+            const scopeA = `${outA.type}:${outA.path}`
+            const scopeB = `${outB.type}:${outB.path}`
+            if (checkScopeOverlap(scopeA, scopeB)) {
+              if (outA.ownershipClass === "canonical" || outB.ownershipClass === "canonical") {
+                if (outA.ownershipClass === "shared" && outB.ownershipClass === "shared") {
+                  continue
+                }
+                lockConflicts.push({
+                  id: `conflict-${wIdA}-${wIdB}-${outA.path}`,
+                  scope: scopeA,
+                  blockingWorkflowId: wIdA,
+                  requestingWorkflowId: wIdB,
+                  type: outA.path === outB.path ? "ownership" : "scope_overlap",
+                  artifactPath: outA.path
+                })
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Overlapping active locks vs requesting sibling outputs
+    for (const lock of locks) {
+      if (lock.status === "active") {
+        for (const [wId, outs] of outputsByWorkflow.entries()) {
+          if (lock.workflowId !== wId) {
+            for (const out of outs) {
+              const scopeB = `${out.type}:${out.path}`
+              if (checkScopeOverlap(lock.scope, scopeB)) {
+                if (out.ownershipClass !== "shared") {
+                  lockConflicts.push({
+                    id: `conflict-active-${lock.id}-${wId}`,
+                    scope: lock.scope,
+                    blockingWorkflowId: lock.workflowId,
+                    requestingWorkflowId: wId,
+                    type: "scope_overlap",
+                    artifactPath: out.path
+                  })
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return { locks, lockConflicts }
+  }
+
   async getProjectProjection(projectId: string): Promise<WorkflowRunProjection | null> {
     this.seedIfNeeded()
     
@@ -381,11 +502,21 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
       packs: packsList
     }
 
+    const { locks, lockConflicts } = this.computeLocksAndConflicts(projectId)
+
     const existing = this.projectionsByProjectId.get(projectId)
     if (existing) {
+      if (existing.status === "done") {
+        const activeLocks = (this.locksByProjectId.get(projectId) ?? []).filter(
+          (l) => l.workflowId !== existing.id && l.workflowId !== existing.workflowType
+        )
+        this.locksByProjectId.set(projectId, activeLocks)
+      }
       return {
         ...existing,
-        flowGraph
+        flowGraph,
+        locks: this.locksByProjectId.get(projectId) ?? [],
+        lockConflicts
       }
     }
 
@@ -407,7 +538,9 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
       },
       latestArtifacts: [],
       impacts: [],
-      flowGraph
+      flowGraph,
+      locks,
+      lockConflicts
     }
   }
 
@@ -515,6 +648,21 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
         }
       : createSeedWorkflowProjection(args.projectId)
 
+    // Acquire output locks
+    const locks = this.locksByProjectId.get(args.projectId) ?? []
+    if (manifest?.outputs) {
+      for (const out of manifest.outputs) {
+        locks.push({
+          id: randomUUID(),
+          scope: `${out.type}:${out.path}`,
+          workflowId: projection.id,
+          status: "active",
+          acquiredAt: new Date().toISOString()
+        })
+      }
+    }
+    this.locksByProjectId.set(args.projectId, locks)
+
     this.projectionsByProjectId.set(args.projectId, projection)
     return projection
   }
@@ -533,6 +681,12 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
       : artifact)
     this.projectionsByProjectId.set(args.projectId, projection)
     return projection.latestArtifacts
+  }
+
+  async recoverLock(args: { projectId: string; lockId: string }): Promise<void> {
+    const locks = this.locksByProjectId.get(args.projectId) ?? []
+    const updated = locks.filter((l) => l.id !== args.lockId)
+    this.locksByProjectId.set(args.projectId, updated)
   }
 
   async registerWorkflow(args: {
@@ -1635,6 +1789,10 @@ export class SupabaseWorkflowRuntimeStore implements WorkflowRuntimeStore {
     })
 
     return await this.getLatestArtifacts(args.projectId)
+  }
+
+  async recoverLock(args: { projectId: string; lockId: string }): Promise<void> {
+    // Stub/noop for Supabase configuration
   }
 
   async appendEvent(event: Omit<WorkflowEventRecord, "id" | "sequence" | "createdAt">): Promise<WorkflowEventRecord> {

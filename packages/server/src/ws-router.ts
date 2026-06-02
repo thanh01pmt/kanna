@@ -1548,6 +1548,22 @@ export function createWsRouter({
           await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
           return
         }
+        case "workflow.recoverLock": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          if (!resolvedWorkflowStore.recoverLock) {
+            throw new Error("Workflow runtime store does not support lock recovery.")
+          }
+          const result = await resolvedWorkflowStore.recoverLock({
+            projectId: command.projectId,
+            lockId: command.lockId,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
+          return
+        }
         case "update.check": {
           const snapshot = updateManager
             ? await updateManager.checkForUpdates({ force: command.force })

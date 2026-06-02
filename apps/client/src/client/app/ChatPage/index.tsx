@@ -758,6 +758,16 @@ export function ChatPage() {
     setProposedManifest(null)
   }, [])
 
+  const handleRecoverLock = useCallback((lockId: string) => {
+    if (projectId) {
+      void state.socket.command({
+        type: "workflow.recoverLock",
+        projectId,
+        lockId,
+      })
+    }
+  }, [projectId, state.socket])
+
   const handleRegisterPack = useCallback(async (packId: string) => {
     if (!projectId) return
     try {
@@ -1462,6 +1472,7 @@ export function ChatPage() {
             onRemoveFlowEdge={handleRemoveFlowEdge}
             onApproveFlowEdge={handleApproveFlowEdge}
             onRejectFlowEdge={handleRejectFlowEdge}
+            onRecoverLock={handleRecoverLock}
             densityMode={projectUiState?.workflowDensityMode ?? "normal"}
             onDensityModeChange={(mode) => projectId && setWorkflowDensityMode(projectId, mode)}
             onClose={handleCloseRightSidebar}

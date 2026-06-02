@@ -7,6 +7,7 @@ import {
   Clock3,
   Eye,
   FileText,
+  Lock,
   GitBranch,
   History,
   Layers3,
@@ -407,12 +408,14 @@ function WorkflowStartCard({
   isStartingWorkflow,
   run,
   onRepairArtifact,
+  onRecoverLock,
 }: {
   definitions?: WorkflowDefinitionSummary[]
   onStartWorkflow?: (definition: WorkflowDefinitionSummary) => void | Promise<void>
   isStartingWorkflow?: boolean
   run?: WorkflowRunProjection | null
   onRepairArtifact?: (artifact: WorkflowArtifactRef) => void
+  onRecoverLock?: (lockId: string) => void | Promise<void>
 }) {
   if (!definitions?.length || !onStartWorkflow) return null
 
@@ -510,6 +513,28 @@ function WorkflowStartCard({
                         Downstream changes require repair before run.
                       </div>
                     )}
+
+                    {(() => {
+                      const conflicts = run?.lockConflicts?.filter(
+                        c => c.requestingWorkflowId === definition.id || c.blockingWorkflowId === definition.id
+                      ) ?? []
+                      if (conflicts.length === 0) return null
+                      return (
+                        <div className="mt-2.5 space-y-1 rounded-lg bg-red-500/10 border border-red-500/20 p-2">
+                          <div className="text-[10px] font-semibold text-red-500 uppercase tracking-wider flex items-center gap-1">
+                            <AlertTriangle className="h-3 w-3 shrink-0" />
+                            Lock / Ownership Conflict:
+                          </div>
+                          <div className="space-y-1">
+                            {conflicts.map((conflict) => (
+                              <div key={conflict.id} className="text-[10px] text-red-600 font-mono break-all leading-normal">
+                                {conflict.type === "ownership" ? "Ownership" : "Overlap"}: {conflict.artifactPath} (with {conflict.blockingWorkflowId === definition.id ? conflict.requestingWorkflowId : conflict.blockingWorkflowId})
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })()}
                   </div>
 
                   <div className="flex shrink-0 items-center gap-1.5 self-start">
@@ -523,20 +548,27 @@ function WorkflowStartCard({
                         <Wrench className="h-3.5 w-3.5" />
                       </button>
                     )}
-                    <button
-                      type="button"
-                      className={cn(
-                        "inline-flex h-8 items-center rounded-full border px-3 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-                        definition.readiness === "blocked"
-                          ? "border-border bg-muted/20 text-muted-foreground cursor-not-allowed"
-                          : "border-border bg-background text-foreground hover:bg-muted"
-                      )}
-                      disabled={Boolean(isStartingWorkflow) || definition.readiness === "blocked"}
-                      onClick={() => onStartWorkflow(definition)}
-                      title={definition.readiness === "blocked" ? "Workflow is blocked by unsatisfied inputs" : "Start workflow"}
-                    >
-                      {isStartingWorkflow ? "Starting..." : "Start"}
-                    </button>
+                    {(() => {
+                      const hasConflicts = (run?.lockConflicts?.filter(
+                        c => c.requestingWorkflowId === definition.id || c.blockingWorkflowId === definition.id
+                      ) ?? []).length > 0
+                      return (
+                        <button
+                          type="button"
+                          className={cn(
+                            "inline-flex h-8 items-center rounded-full border px-3 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                            (definition.readiness === "blocked" || hasConflicts)
+                              ? "border-border bg-muted/20 text-muted-foreground cursor-not-allowed"
+                              : "border-border bg-background text-foreground hover:bg-muted"
+                          )}
+                          disabled={Boolean(isStartingWorkflow) || definition.readiness === "blocked" || hasConflicts}
+                          onClick={() => onStartWorkflow(definition)}
+                          title={definition.readiness === "blocked" ? "Workflow is blocked by unsatisfied inputs" : hasConflicts ? "Workflow is blocked by lock/ownership conflicts" : "Start workflow"}
+                        >
+                          {isStartingWorkflow ? "Starting..." : "Start"}
+                        </button>
+                      )
+                    })()}
                   </div>
                 </div>
               </div>
@@ -547,7 +579,8 @@ function WorkflowStartCard({
     )
   }
 
-  const hasItems = Object.values(groups).some(arr => arr.length > 0)
+  const activeLocks = run?.locks ?? []
+  const hasItems = Object.values(groups).some(arr => arr.length > 0) || activeLocks.length > 0
   if (!hasItems) {
     return (
       <div className="p-4 text-center text-xs text-muted-foreground">
@@ -558,6 +591,43 @@ function WorkflowStartCard({
 
   return (
     <section className="p-3 border-b border-border space-y-4">
+      {activeLocks.length > 0 && (
+        <div className="border border-border bg-muted/30 rounded-2xl p-3 space-y-2 mb-4">
+          <h4 className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground flex items-center gap-1.5 px-1">
+            <Lock className="h-3.5 w-3.5 text-muted-foreground" />
+            Active Locks & Claims
+          </h4>
+          <div className="space-y-1.5">
+            {activeLocks.map((lock) => {
+              const isRecoverable = lock.status === "recoverable"
+              return (
+                <div key={lock.id} className="flex items-center justify-between gap-2 p-2 rounded-xl bg-card border border-border text-[11px]">
+                  <div className="min-w-0 flex-1 font-mono text-[10px] text-muted-foreground truncate">
+                    <span className="font-semibold text-foreground">{lock.scope}</span>
+                    <span className="mx-1">by</span>
+                    <span className="truncate">{lock.workflowId}</span>
+                  </div>
+                  {isRecoverable && onRecoverLock ? (
+                    <button
+                      type="button"
+                      className="shrink-0 h-6 px-2 rounded bg-amber-500/10 border border-amber-500/20 text-amber-600 hover:bg-amber-500/20 text-[10px] font-semibold transition-colors flex items-center gap-1"
+                      onClick={() => onRecoverLock(lock.id)}
+                    >
+                      <RefreshCw className="h-2.5 w-2.5" />
+                      Recover
+                    </button>
+                  ) : (
+                    <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 font-semibold uppercase tracking-wider">
+                      Active
+                    </span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {renderGroup(
         "Running",
         groups.running,
@@ -950,6 +1020,7 @@ export function WorkflowTrackerPanel({
             isStartingWorkflow={actions.isStartingWorkflow}
             run={isStubRun ? run : null}
             onRepairArtifact={setRepairTarget}
+            onRecoverLock={actions.onRecoverLock}
           />
 
           {run?.flowGraph && (
@@ -1033,6 +1104,7 @@ export function WorkflowTrackerPanel({
           isStartingWorkflow={actions.isStartingWorkflow}
           run={run}
           onRepairArtifact={setRepairTarget}
+          onRecoverLock={actions.onRecoverLock}
         />
 
         <section className="border-b border-border p-3">

@@ -88,6 +88,7 @@ export const WorkflowManifestSchema = z.object({
     path: z.string(),
     type: z.enum(["file", "directory", "glob"]),
     description: z.string().optional(),
+    ownershipClass: z.enum(["canonical", "derived", "shared"]).optional(),
   })).optional(),
   /** Optional nested workflow/task/step graph. If absent, Kanna derives artifact_check nodes from artifacts. */
   nodes: z.array(WorkflowNodeDefinitionSchema).optional(),
