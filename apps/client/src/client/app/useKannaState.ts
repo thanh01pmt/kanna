@@ -1793,18 +1793,22 @@ export function useKannaState(activeChatId: string | null): KannaState {
 
     try {
       await socket.command({ type: "project.remove", projectId, localPath, deleteHistory })
-      if (projectId) {
-        useTerminalLayoutStore.getState().clearProject(projectId)
-        useRightSidebarStore.getState().clearProject(projectId)
-        if (runtime?.projectId === projectId) {
+      const targetProjectId = projectId || localProject?.id
+      if (targetProjectId) {
+        useTerminalLayoutStore.getState().clearProject(targetProjectId)
+        useRightSidebarStore.getState().clearProject(targetProjectId)
+        if (runtime?.projectId === targetProjectId) {
           navigate("/")
+        }
+        if (selectedProjectId === targetProjectId) {
+          setSelectedProjectId(null)
         }
       }
       setCommandError(null)
     } catch (error) {
       setCommandError(error instanceof Error ? error.message : String(error))
     }
-  }, [dialog, navigate, runtime?.projectId, sidebarData.projectGroups, localProjects?.projects, socket])
+  }, [dialog, navigate, runtime?.projectId, sidebarData.projectGroups, localProjects?.projects, selectedProjectId, socket])
 
   const handleReorderProjectGroups = useCallback(async (projectIds: string[]) => {
     setOptimisticSidebarProjectOrder(projectIds)

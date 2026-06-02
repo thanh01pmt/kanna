@@ -206,7 +206,9 @@ export function LocalDev({
   onCreateProject,
   onHideProject,
 }: LocalDevProps) {
-  const projects = useMemo(() => snapshot?.projects ?? [], [snapshot?.projects])
+  const projects = useMemo(() => {
+    return (snapshot?.projects ?? []).filter((p) => !(p as any).deletedAt)
+  }, [snapshot?.projects])
   const isConnecting = connectionStatus === "connecting" || !ready
   const isConnected = connectionStatus === "connected" && ready
 
