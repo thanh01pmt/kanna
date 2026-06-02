@@ -97,6 +97,7 @@ export type ClientCommand =
   | { type: "project.readQuickActions"; projectId: string }
   | { type: "project.writeQuickActions"; projectId: string; quickActions: ProjectQuickAction[] }
   | { type: "workflow.listDefinitions"; projectId?: string }
+  | { type: "workflow.deleteDefinition"; projectId: string; workflowDefinitionId: string }
   | { type: "project.registerWorkflow"; projectId: string; workflowDefinitionId: string; versionId?: string; isDefaultEntrypoint?: boolean }
   | { type: "project.unregisterWorkflow"; projectId: string; workflowDefinitionId: string }
   | { type: "project.updateWorkflowRegistration"; projectId: string; workflowDefinitionId: string; patch: { versionId?: string; enabled?: boolean; isDefaultEntrypoint?: boolean; settings?: Record<string, unknown> } }

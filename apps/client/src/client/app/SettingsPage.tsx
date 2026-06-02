@@ -968,6 +968,7 @@ export function WorkflowSection({ state }: { state: KannaState }) {
   const [importError, setImportError] = useState<string | null>(null)
   const [importWarnings, setImportWarnings] = useState<string[]>([])
   const [isImporting, setIsImporting] = useState(false)
+  const [deletingDefinitionId, setDeletingDefinitionId] = useState<string | null>(null)
 
   const projectId = state.activeProjectId
 
@@ -1024,6 +1025,26 @@ export function WorkflowSection({ state }: { state: KannaState }) {
       loadDefinitions()
     } catch (err) {
       console.error(err)
+    }
+  }
+
+  const handleDeleteDefinition = async (def: WorkflowDefinitionSummary) => {
+    if (!projectId) return
+    const confirmed = window.confirm(`Delete "${def.name}" from this project's workflow catalog? This cannot be undone.`)
+    if (!confirmed) return
+
+    try {
+      setDeletingDefinitionId(def.id)
+      await state.socket.command({
+        type: "workflow.deleteDefinition",
+        projectId,
+        workflowDefinitionId: def.id,
+      })
+      loadDefinitions()
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setDeletingDefinitionId(null)
     }
   }
 
@@ -1204,6 +1225,7 @@ export function WorkflowSection({ state }: { state: KannaState }) {
               </div>
             ) : (
               definitions.map((def) => {
+                const canDeleteDefinition = Boolean(projectId && def.ownerId === projectId && !def.isOfficialGlobal)
                 const availableVersions = [
                   { id: "latest", label: `Latest (${def.currentVersion || "unreleased"})` },
                   ...(def.currentVersionId ? [{ id: def.currentVersionId, label: `Version ${def.currentVersion || "current"}` }] : []),
@@ -1245,6 +1267,23 @@ export function WorkflowSection({ state }: { state: KannaState }) {
 
                     {projectId && (
                       <div className="flex flex-wrap items-center gap-4">
+                        {canDeleteDefinition && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteDefinition(def)}
+                            disabled={deletingDefinitionId === def.id}
+                            title="Delete workflow definition"
+                            aria-label={`Delete ${def.name}`}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-50"
+                          >
+                            {deletingDefinitionId === def.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                          </button>
+                        )}
+
                         {/* Register Checkbox */}
                         <label className="flex items-center gap-2 text-xs font-medium text-foreground cursor-pointer select-none">
                           <input
@@ -1396,16 +1435,165 @@ export function WorkflowSection({ state }: { state: KannaState }) {
   )
 }
 
-export function McpSection() {
-  const tools = [
-    "workflow_list_definitions",
-    "workflow_start_run",
-    "workflow_get_projection",
-    "workflow_list_runs",
-    "workflow_list_events",
-    "workflow_append_event",
-    "artifact_list",
-  ]
+type McpServerConfig = {
+  command: string
+  args?: string[]
+  env?: Record<string, string>
+}
+
+type McpConfig = {
+  mcpServers?: Record<string, McpServerConfig>
+}
+
+function parseMcpConfig(content: string): McpConfig {
+  const parsed = JSON.parse(content) as McpConfig
+  return {
+    ...parsed,
+    mcpServers: parsed.mcpServers ?? {},
+  }
+}
+
+const KANNA_MCP_TOOLS = [
+  {
+    name: "workflow_list_definitions",
+    description: "List workflow definitions available to a Kanna project before starting or registering workflows.",
+  },
+  {
+    name: "workflow_start_run",
+    description: "Start a workflow run for a project, optionally with chat context and structured input.",
+  },
+  {
+    name: "workflow_publish_manifest",
+    description: "Publish an imported workflow manifest into Kanna's workflow definition store.",
+  },
+  {
+    name: "workflow_get_projection",
+    description: "Read the latest projected workflow state, including nodes, artifacts, locks, and impacts.",
+  },
+  {
+    name: "workflow_list_runs",
+    description: "List recent workflow runs for a project.",
+  },
+  {
+    name: "workflow_list_events",
+    description: "Inspect append-only workflow events for audit and state reconstruction.",
+  },
+  {
+    name: "workflow_append_event",
+    description: "Append an integration or audit event to a workflow run.",
+  },
+  {
+    name: "artifact_list",
+    description: "List classified project artifacts with optional kind, query, and limit filters.",
+  },
+  {
+    name: "artifact_mark",
+    description: "Mark an artifact as invalidated or accepted as the current source of truth.",
+  },
+  {
+    name: "workflow_update_artifact_impact",
+    description: "Record review or repair status for downstream artifact impacts.",
+  },
+] as const
+
+export function McpSection({
+  state,
+}: {
+  state: Pick<KannaState, "activeProjectId" | "sidebarData" | "connectionStatus" | "socket">
+}) {
+  const projectId = state.activeProjectId
+  const activeProject = state.sidebarData.projectGroups.find(p => p.groupKey === projectId)
+  const [config, setConfig] = useState<McpConfig>({ mcpServers: {} })
+  const [loading, setLoading] = useState(false)
+  const [savingServerName, setSavingServerName] = useState<string | null>(null)
+  const [mcpError, setMcpError] = useState<string | null>(null)
+  const [serverName, setServerName] = useState("custom-server")
+  const [serverCommand, setServerCommand] = useState("")
+  const [serverArgs, setServerArgs] = useState("")
+
+  const servers = Object.entries(config.mcpServers ?? {})
+
+  const loadConfig = async () => {
+    if (!projectId || state.connectionStatus !== "connected") {
+      setConfig({ mcpServers: {} })
+      return
+    }
+    try {
+      setLoading(true)
+      setMcpError(null)
+      const content = await state.socket.command<string>({
+        type: "project.readFile",
+        projectId,
+        relativePath: ".mcp.json",
+      })
+      setConfig(parseMcpConfig(content))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (message.includes("ENOENT") || message.includes("no such file")) {
+        setConfig({ mcpServers: {} })
+        setMcpError(null)
+      } else {
+        setMcpError(message)
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const saveConfig = async (nextConfig: McpConfig, savingName?: string) => {
+    if (!projectId) return
+    try {
+      setSavingServerName(savingName ?? "__config__")
+      setMcpError(null)
+      await state.socket.command({
+        type: "project.writeFile",
+        projectId,
+        relativePath: ".mcp.json",
+        content: `${JSON.stringify({ mcpServers: nextConfig.mcpServers ?? {} }, null, 2)}\n`,
+      })
+      setConfig(nextConfig)
+    } catch (error) {
+      setMcpError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setSavingServerName(null)
+    }
+  }
+
+  const handleAddServer = async () => {
+    const name = serverName.trim()
+    const command = serverCommand.trim()
+    if (!name || !command) {
+      setMcpError("Server name and command are required.")
+      return
+    }
+    const args = serverArgs.trim().length > 0 ? serverArgs.trim().split(/\s+/) : undefined
+    const nextConfig = {
+      ...config,
+      mcpServers: {
+        ...(config.mcpServers ?? {}),
+        [name]: {
+          command,
+          ...(args ? { args } : {}),
+        },
+      },
+    }
+    await saveConfig(nextConfig, name)
+    setServerName("custom-server")
+    setServerCommand("")
+    setServerArgs("")
+  }
+
+  const handleRemoveServer = async (name: string) => {
+    const confirmed = window.confirm(`Remove MCP server "${name}" from .mcp.json?`)
+    if (!confirmed) return
+    const nextServers = { ...(config.mcpServers ?? {}) }
+    delete nextServers[name]
+    await saveConfig({ ...config, mcpServers: nextServers }, name)
+  }
+
+  useEffect(() => {
+    void loadConfig()
+  }, [projectId, state.connectionStatus, state.socket])
 
   return (
     <div className="border-b border-border">
@@ -1415,34 +1603,124 @@ export function McpSection() {
         bordered={false}
       >
         <div className="flex flex-wrap justify-end gap-2">
-          <StatusPill tone="good">Configured</StatusPill>
-          <CodePill>kanna-workflow</CodePill>
+          <StatusPill tone={servers.length > 0 ? "good" : "neutral"}>{servers.length > 0 ? "Configured" : "Not Configured"}</StatusPill>
+          {servers.some(([name]) => name === "kanna-workflow") ? <CodePill>kanna-workflow</CodePill> : null}
         </div>
       </SettingsRow>
 
       <SettingsRow
         title="Project Config"
-        description="The project-level MCP config is checked into the workspace so compatible clients can discover the server."
+        description={`Manage the project-level MCP config${activeProject ? ` for ${activeProject.title}` : ""}.`}
       >
-        <CodePill>.mcp.json</CodePill>
+        <div className="flex items-center gap-2">
+          <CodePill>.mcp.json</CodePill>
+          <Button type="button" size="sm" variant="outline" onClick={() => void loadConfig()} disabled={loading || !projectId}>
+            {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+            Refresh
+          </Button>
+        </div>
       </SettingsRow>
 
       <SettingsRow
-        title="Command"
-        description="The MCP host runs this command from the repository root."
+        title="Servers"
+        description="Add or remove MCP servers written to the active project's config file."
+        alignStart
       >
-        <CodePill>bun packages/mcp/src/index.ts</CodePill>
+        <div className="flex w-full max-w-[620px] flex-col gap-3">
+          {mcpError ? (
+            <div className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+              {mcpError}
+            </div>
+          ) : null}
+
+          {servers.length > 0 ? (
+            <div className="space-y-2">
+              {servers.map(([name, server]) => (
+                <div key={name} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card/30 px-3 py-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium text-foreground">{name}</div>
+                    <div className="truncate font-mono text-xs text-muted-foreground">
+                      {server.command}{server.args?.length ? ` ${server.args.join(" ")}` : ""}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleRemoveServer(name)}
+                    disabled={savingServerName === name}
+                    title="Remove MCP server"
+                    aria-label={`Remove MCP server ${name}`}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-50"
+                  >
+                    {savingServerName === name ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-border bg-card/20 px-3 py-3 text-sm text-muted-foreground">
+              No MCP servers configured for this project.
+            </div>
+          )}
+
+          <div className="grid gap-2 rounded-lg border border-border bg-card/20 p-3 sm:grid-cols-[1fr_1fr_1fr_auto]">
+            <Input value={serverName} onChange={(event) => setServerName(event.target.value)} placeholder="server-name" className="font-mono" />
+            <Input value={serverCommand} onChange={(event) => setServerCommand(event.target.value)} placeholder="command" className="font-mono" />
+            <Input value={serverArgs} onChange={(event) => setServerArgs(event.target.value)} placeholder="args" className="font-mono" />
+            <Button type="button" size="sm" onClick={() => void handleAddServer()} disabled={!projectId || savingServerName !== null}>
+              {savingServerName === serverName.trim() ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+              Add
+            </Button>
+          </div>
+        </div>
       </SettingsRow>
 
       <SettingsRow
         title="Tools"
-        description="These tools expose workflow definitions, runs, events, projections, and classified artifacts."
+        description="Tools are grouped by the MCP server that exposes them."
         alignStart
       >
-        <div className="flex max-w-[520px] flex-wrap justify-end gap-2">
-          {tools.map((tool) => (
-            <CodePill key={tool}>{tool}</CodePill>
-          ))}
+        <div className="flex w-full max-w-[720px] flex-col gap-3">
+          {servers.length > 0 ? (
+            servers.map(([name, server]) => {
+              const isKannaWorkflow = name === "kanna-workflow"
+              return (
+                <div key={name} className="rounded-lg border border-border bg-card/20">
+                  <div className="flex flex-col gap-1 border-b border-border px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-foreground">{name}</div>
+                      <div className="truncate font-mono text-xs text-muted-foreground">
+                        {server.command}{server.args?.length ? ` ${server.args.join(" ")}` : ""}
+                      </div>
+                    </div>
+                    <StatusPill tone={isKannaWorkflow ? "good" : "neutral"}>
+                      {isKannaWorkflow ? `${KANNA_MCP_TOOLS.length} tools` : "External"}
+                    </StatusPill>
+                  </div>
+
+                  {isKannaWorkflow ? (
+                    <div className="divide-y divide-border">
+                      {KANNA_MCP_TOOLS.map((tool) => (
+                        <div key={tool.name} className="grid gap-1 px-3 py-2.5 sm:grid-cols-[220px_minmax(0,1fr)] sm:gap-4">
+                          <code className="truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground" title={tool.name}>
+                            {tool.name}
+                          </code>
+                          <div className="text-xs leading-relaxed text-muted-foreground">{tool.description}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="px-3 py-3 text-xs leading-relaxed text-muted-foreground">
+                      Tool names and descriptions are discovered by the MCP host when it connects to this server.
+                    </div>
+                  )}
+                </div>
+              )
+            })
+          ) : (
+            <div className="rounded-lg border border-border bg-card/20 px-3 py-3 text-sm text-muted-foreground">
+              Configure a server to see its tools here.
+            </div>
+          )}
         </div>
       </SettingsRow>
     </div>
@@ -2499,7 +2777,7 @@ export function SettingsPage() {
                 ) : selectedPage === "workflow" ? (
                   <WorkflowSection state={state} />
                 ) : selectedPage === "mcp" ? (
-                  <McpSection />
+                  <McpSection state={state} />
                 ) : (
                   <ChangelogSection
                     status={changelogStatus}

@@ -1344,6 +1344,22 @@ export function createWsRouter({
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           return
         }
+        case "workflow.deleteDefinition": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          if (!resolvedWorkflowStore.deleteDefinition) {
+            throw new Error("Workflow runtime store does not support deleting workflow definitions.")
+          }
+          await resolvedWorkflowStore.deleteDefinition({
+            projectId: command.projectId,
+            workflowDefinitionId: command.workflowDefinitionId,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { ok: true } })
+          await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
+          return
+        }
         case "project.registerWorkflow": {
           const project = store.getProject(command.projectId)
           if (!project) {

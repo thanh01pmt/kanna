@@ -608,6 +608,26 @@ describe("InMemoryWorkflowRuntimeStore workflow sharing marketplace", () => {
     expect(found!.isRegistered).toBe(true)
   })
 
+  test("deleteDefinition removes an owned workflow from the project catalog", async () => {
+    const store = new InMemoryWorkflowRuntimeStore()
+    const def = await bootstrapDefinition(store, "project-a", "Owned Workflow")
+    await store.registerWorkflow({ projectId: "project-a", workflowDefinitionId: def.id })
+
+    await store.deleteDefinition!({ projectId: "project-a", workflowDefinitionId: def.id })
+
+    const visibleToA = await store.listDefinitions("project-a")
+    expect(visibleToA.find(d => d.id === def.id)).toBeUndefined()
+  })
+
+  test("deleteDefinition blocks workflows not owned by the active project", async () => {
+    const store = new InMemoryWorkflowRuntimeStore()
+    const def = await bootstrapDefinition(store, "project-a", "Other Project Workflow")
+
+    await expect(
+      store.deleteDefinition!({ projectId: "project-b", workflowDefinitionId: def.id })
+    ).rejects.toThrow("Only workflows owned by the active project can be deleted.")
+  })
+
   test("publishGlobalRequest marks workflow with pending status", async () => {
     const store = new InMemoryWorkflowRuntimeStore()
     const def = await bootstrapDefinition(store, "project-a", "Global Candidate")
@@ -665,4 +685,3 @@ describe("InMemoryWorkflowRuntimeStore workflow sharing marketplace", () => {
     expect(rejected?.isOfficialGlobal).toBeFalsy()
   })
 })
-

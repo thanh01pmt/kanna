@@ -41,6 +41,7 @@ export interface WorkflowRuntimeStore {
     limit?: number
   }): Promise<WorkflowArtifactRef[]>
   publishManifest?(args: { projectId?: string; manifest: WorkflowManifest; sourceMarkdown?: string }): Promise<WorkflowDefinitionSummary>
+  deleteDefinition?(args: { projectId: string; workflowDefinitionId: string }): Promise<void>
   updateArtifactImpact?(args: {
     projectId: string
     runId?: string
@@ -629,6 +630,31 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
     }
     this.definitionsById.set(slug, definition)
     return definition
+  }
+
+  async deleteDefinition(args: { projectId: string; workflowDefinitionId: string }): Promise<void> {
+    const definition = this.definitionsById.get(args.workflowDefinitionId)
+    if (!definition) {
+      throw new Error("Workflow definition not found")
+    }
+    if (definition.isOfficialGlobal || definition.ownerId !== args.projectId) {
+      throw new Error("Only workflows owned by the active project can be deleted.")
+    }
+
+    this.definitionsById.delete(args.workflowDefinitionId)
+    for (const registrations of this.registrationsByProjectId.values()) {
+      registrations.delete(args.workflowDefinitionId)
+    }
+    for (const projectEdges of this.projectEdges.values()) {
+      for (const [key, edge] of projectEdges.entries()) {
+        if (
+          edge.sourceWorkflowDefinitionId === args.workflowDefinitionId ||
+          edge.targetWorkflowDefinitionId === args.workflowDefinitionId
+        ) {
+          projectEdges.delete(key)
+        }
+      }
+    }
   }
 
   async startRun(args: { projectId: string; workflowDefinitionId: string; chatId?: string; input?: Record<string, unknown> }): Promise<WorkflowRunProjection> {
@@ -3717,6 +3743,10 @@ export class SupabaseWorkflowRuntimeStore implements WorkflowRuntimeStore {
       .eq("workflow_definition_id", args.workflowDefinitionId)
 
     if (error) throw new Error(error.message)
+  }
+
+  async deleteDefinition(args: { projectId: string; workflowDefinitionId: string }): Promise<void> {
+    throw new Error("deleteDefinition is not implemented in Supabase store yet")
   }
 
   async updateWorkflowRegistration(args: {
