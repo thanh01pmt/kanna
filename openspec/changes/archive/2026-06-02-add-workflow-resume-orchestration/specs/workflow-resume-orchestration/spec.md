@@ -42,7 +42,6 @@ The workflow panel SHALL show interrupted runs with clear Resume, Restart, and A
 #### Scenario: Display blocked resume reason
 - **WHEN** resume is blocked by stale inputs or locks
 - **THEN** the UI SHALL show the blocking reason before any action is taken.
-*** Add File: /Users/tonypham/MEGA/WebApp/kanna/openspec/changes/add-workflow-resume-orchestration/tasks.md
 ## 1. Resume State Model
 - [ ] 1.1 Add run lifecycle metadata for interrupted, archived, and resumable states.
 - [ ] 1.2 Add checkpoint metadata for node input/output versions and last event sequence.

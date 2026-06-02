@@ -37,7 +37,6 @@ The system SHALL support cleanup for merged, discarded, interrupted, or abandone
 #### Scenario: Discard job
 - **WHEN** the user discards a sub-agent job
 - **THEN** the system SHALL mark the job discarded and make its worktree eligible for cleanup.
-*** Add File: /Users/tonypham/MEGA/WebApp/kanna/openspec/changes/add-parallel-subagent-worktrees/tasks.md
 ## 1. Job and Worktree Model
 - [ ] 1.1 Add sub-agent job state and worktree metadata.
 - [ ] 1.2 Add worktree/branch creation and cleanup utilities.

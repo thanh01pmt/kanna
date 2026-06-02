@@ -1,7 +1,7 @@
 # parallel-subagent-worktrees Specification
 
 ## Purpose
-TBD - created by archiving change add-parallel-subagent-worktrees. Update Purpose after archive.
+Define isolated parallel sub-agent workflow jobs, worktree tracking, merge review, conflict checks, and cleanup expectations.
 ## Requirements
 ### Requirement: Worktree-Isolated Parallel Jobs
 The system SHALL run parallel sub-agent workflow jobs in isolated worktrees or branches rather than writing directly to the main workspace.
@@ -40,5 +40,3 @@ The system SHALL support cleanup for merged, discarded, interrupted, or abandone
 #### Scenario: Discard job
 - **WHEN** the user discards a sub-agent job
 - **THEN** the system SHALL mark the job discarded and make its worktree eligible for cleanup.
-*** Add File: /Users/tonypham/MEGA/WebApp/kanna/openspec/changes/add-parallel-subagent-worktrees/tasks.md
-

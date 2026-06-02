@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { InMemoryWorkflowRuntimeStore } from "./workflow-runtime-store"
+import type { WorkflowLock } from "@kanna/shared/types"
 
 describe("InMemoryWorkflowRuntimeStore project workflow registration", () => {
   test("does not materialize a live workflow tree for a new project until a workflow starts", async () => {
@@ -170,9 +171,10 @@ describe("InMemoryWorkflowRuntimeStore resume orchestration", () => {
       manifest: {
         version: "1.0.0",
         name: "Writer",
+        artifacts: [],
         inputs: [{ path: "input.json", type: "file" }],
         outputs: [{ path: "output.json", type: "file" }],
-        nodes: [{ id: "step-1", name: "Step One", parent_id: null, node_type: "agent", status: "interrupted" }],
+        nodes: [{ id: "step-1", name: "Step One", nodeType: "step", status: "interrupted" }],
       },
     })
 
@@ -192,14 +194,14 @@ describe("InMemoryWorkflowRuntimeStore resume orchestration", () => {
     run.root.status = "interrupted"
     run.checkpoint = {
       nodeId: "step-1",
-      versionId: "1.0.0",
+      workflowVersionId: "1.0.0",
       inputs: [{ path: "input.json", checksum: "abc", version: "1.0" }],
       outputs: [{ path: "output.json", checksum: "def", version: "1.0" }],
-      events: [],
+      lastEventSequence: 0,
     }
     run.latestArtifacts = [
-      { id: "input", name: "Input", path: "input.json", kind: "other", checksum: "abc", version: "1.0", changed: false },
-      { id: "output", name: "Output", path: "output.json", kind: "other", checksum: "def", version: "1.0", changed: false },
+      { id: "input", path: "input.json", kind: "other", checksum: "abc", version: "1.0", changed: false },
+      { id: "output", path: "output.json", kind: "other", checksum: "def", version: "1.0", changed: false },
     ]
 
     const plan = await store.inspectResumePlan({ projectId: "project-a", runId: run.id })
@@ -218,8 +220,9 @@ describe("InMemoryWorkflowRuntimeStore resume orchestration", () => {
       manifest: {
         version: "1.0.0",
         name: "Writer",
+        artifacts: [],
         inputs: [{ path: "input.json", type: "file" }],
-        nodes: [{ id: "step-1", name: "Step One", parent_id: null, node_type: "agent", status: "interrupted" }],
+        nodes: [{ id: "step-1", name: "Step One", nodeType: "step", status: "interrupted" }],
       },
     })
 
@@ -237,12 +240,13 @@ describe("InMemoryWorkflowRuntimeStore resume orchestration", () => {
     run.status = "interrupted"
     run.checkpoint = {
       nodeId: "step-1",
-      versionId: "1.0.0",
+      workflowVersionId: "1.0.0",
       inputs: [{ path: "input.json", checksum: "abc", version: "1.0" }],
-      events: [],
+      outputs: [],
+      lastEventSequence: 0,
     }
     run.latestArtifacts = [
-      { id: "input", name: "Input", path: "input.json", kind: "other", checksum: "xyz", version: "1.1", changed: true },
+      { id: "input", path: "input.json", kind: "other", checksum: "xyz", version: "1.1", changed: true },
     ]
 
     const plan = await store.inspectResumePlan({ projectId: "project-a", runId: run.id })
@@ -257,7 +261,8 @@ describe("InMemoryWorkflowRuntimeStore resume orchestration", () => {
       manifest: {
         version: "1.0.0",
         name: "Writer",
-        nodes: [{ id: "step-1", name: "Step One", parent_id: null, node_type: "agent", status: "interrupted" }],
+        artifacts: [],
+        nodes: [{ id: "step-1", name: "Step One", nodeType: "step", status: "interrupted" }],
       },
     })
 
@@ -286,7 +291,8 @@ describe("InMemoryWorkflowRuntimeStore resume orchestration", () => {
       manifest: {
         version: "1.0.0",
         name: "Writer",
-        nodes: [{ id: "step-1", name: "Step One", parent_id: null, node_type: "agent" }],
+        artifacts: [],
+        nodes: [{ id: "step-1", name: "Step One", nodeType: "step" }],
       },
     })
 
@@ -307,7 +313,7 @@ describe("InMemoryWorkflowRuntimeStore resume orchestration", () => {
     expect(newRun.id).not.toBe(run.id)
     expect(newRun.status).toBe("running")
 
-    expect(run.status).toBe("archived")
+    expect((run as { status: string }).status).toBe("archived")
   })
 
   test("can archive a run directly", async () => {
@@ -316,7 +322,8 @@ describe("InMemoryWorkflowRuntimeStore resume orchestration", () => {
       manifest: {
         version: "1.0.0",
         name: "Writer",
-        nodes: [{ id: "step-1", name: "Step One", parent_id: null, node_type: "agent" }],
+        artifacts: [],
+        nodes: [{ id: "step-1", name: "Step One", nodeType: "step" }],
       },
     })
 
@@ -343,14 +350,16 @@ describe("InMemoryWorkflowRuntimeStore parallel subagent worktrees", () => {
       manifest: {
         version: "1.0.0",
         name: "Main",
-        nodes: [{ id: "step-1", name: "Step One", parent_id: null, node_type: "agent" }],
+        artifacts: [],
+        nodes: [{ id: "step-1", name: "Step One", nodeType: "step" }],
       },
     })
     const second = await store.publishManifest({
       manifest: {
         version: "1.0.0",
         name: "Sub",
-        nodes: [{ id: "step-2", name: "Step Two", parent_id: null, node_type: "agent" }],
+        artifacts: [],
+        nodes: [{ id: "step-2", name: "Step Two", nodeType: "step" }],
       },
     })
 
@@ -380,14 +389,16 @@ describe("InMemoryWorkflowRuntimeStore parallel subagent worktrees", () => {
       manifest: {
         version: "1.0.0",
         name: "Main",
-        nodes: [{ id: "step-1", name: "Step One", parent_id: null, node_type: "agent" }],
+        artifacts: [],
+        nodes: [{ id: "step-1", name: "Step One", nodeType: "step" }],
       },
     })
     const second = await store.publishManifest({
       manifest: {
         version: "1.0.0",
         name: "Sub",
-        nodes: [{ id: "step-2", name: "Step Two", parent_id: null, node_type: "agent" }],
+        artifacts: [],
+        nodes: [{ id: "step-2", name: "Step Two", nodeType: "step" }],
       },
     })
 
@@ -414,10 +425,11 @@ describe("InMemoryWorkflowRuntimeStore parallel subagent worktrees", () => {
 
     // Reset and simulate a lock conflict
     job.mergeStatus = "clean"
-    job.producedArtifacts = [{ id: "doc", name: "Doc", path: "reports/doc.md", kind: "other", checksum: "123", version: "1.0", changed: true }]
+    job.producedArtifacts = [{ id: "doc", path: "reports/doc.md", kind: "other", checksum: "123", version: "1.0", changed: true }]
     
     // Acquire conflicting lock for another run
-    const locks = store.locksByProjectId.get("project-a") ?? []
+    const lockStore = store as unknown as { locksByProjectId: Map<string, WorkflowLock[]> }
+    const locks = lockStore.locksByProjectId.get("project-a") ?? []
     locks.push({
       id: "lock-conflict",
       scope: "file:reports/doc.md",
@@ -425,7 +437,7 @@ describe("InMemoryWorkflowRuntimeStore parallel subagent worktrees", () => {
       status: "active",
       acquiredAt: new Date().toISOString(),
     })
-    store.locksByProjectId.set("project-a", locks)
+    lockStore.locksByProjectId.set("project-a", locks)
 
     await expect(store.mergeParallelJob!({
       projectId: "project-a",
@@ -439,14 +451,16 @@ describe("InMemoryWorkflowRuntimeStore parallel subagent worktrees", () => {
       manifest: {
         version: "1.0.0",
         name: "Main",
-        nodes: [{ id: "step-1", name: "Step One", parent_id: null, node_type: "agent" }],
+        artifacts: [],
+        nodes: [{ id: "step-1", name: "Step One", nodeType: "step" }],
       },
     })
     const second = await store.publishManifest({
       manifest: {
         version: "1.0.0",
         name: "Sub",
-        nodes: [{ id: "step-2", name: "Step Two", parent_id: null, node_type: "agent" }],
+        artifacts: [],
+        nodes: [{ id: "step-2", name: "Step Two", nodeType: "step" }],
       },
     })
 
@@ -464,7 +478,7 @@ describe("InMemoryWorkflowRuntimeStore parallel subagent worktrees", () => {
       workflowDefinitionId: second.id,
     })
 
-    job.producedArtifacts = [{ id: "output", name: "Output", path: "out.json", kind: "other", checksum: "789", version: "2.0", changed: true }]
+    job.producedArtifacts = [{ id: "output", path: "out.json", kind: "other", checksum: "789", version: "2.0", changed: true }]
 
     const mergedRun = await store.mergeParallelJob!({
       projectId: "project-a",
@@ -475,7 +489,7 @@ describe("InMemoryWorkflowRuntimeStore parallel subagent worktrees", () => {
     expect(job.mergeStatus).toBe("clean")
     expect(mergedRun.latestArtifacts).toContainEqual(expect.objectContaining({
       path: "out.json",
-      approvalStatus: "needs_review",
+      workflowStatus: "needs_review",
     }))
   })
 
@@ -485,14 +499,16 @@ describe("InMemoryWorkflowRuntimeStore parallel subagent worktrees", () => {
       manifest: {
         version: "1.0.0",
         name: "Main",
-        nodes: [{ id: "step-1", name: "Step One", parent_id: null, node_type: "agent" }],
+        artifacts: [],
+        nodes: [{ id: "step-1", name: "Step One", nodeType: "step" }],
       },
     })
     const second = await store.publishManifest({
       manifest: {
         version: "1.0.0",
         name: "Sub",
-        nodes: [{ id: "step-2", name: "Step Two", parent_id: null, node_type: "agent" }],
+        artifacts: [],
+        nodes: [{ id: "step-2", name: "Step Two", nodeType: "step" }],
       },
     })
 
@@ -510,7 +526,7 @@ describe("InMemoryWorkflowRuntimeStore parallel subagent worktrees", () => {
       workflowDefinitionId: second.id,
     })
 
-    job.producedArtifacts = [{ id: "secret", name: "Secret", path: "secret.json", kind: "other", checksum: "000", version: "1.0", changed: true }]
+    job.producedArtifacts = [{ id: "secret", path: "secret.json", kind: "other", checksum: "000", version: "1.0", changed: true }]
 
     const discardedJob = await store.discardParallelJob!({
       projectId: "project-a",
@@ -531,7 +547,8 @@ describe("InMemoryWorkflowRuntimeStore workflow sharing marketplace", () => {
       manifest: {
         version: "1.0.0",
         name,
-        nodes: [{ id: "step-1", name: "Step One", parent_id: null, node_type: "agent" }],
+        artifacts: [],
+        nodes: [{ id: "step-1", name: "Step One", nodeType: "step" }],
       },
     })
   }
@@ -648,6 +665,4 @@ describe("InMemoryWorkflowRuntimeStore workflow sharing marketplace", () => {
     expect(rejected?.isOfficialGlobal).toBeFalsy()
   })
 })
-
-
 

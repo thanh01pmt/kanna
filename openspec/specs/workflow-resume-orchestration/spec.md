@@ -1,7 +1,7 @@
 # workflow-resume-orchestration Specification
 
 ## Purpose
-TBD - created by archiving change add-workflow-resume-orchestration. Update Purpose after archive.
+Define checkpoint-based resume planning, lifecycle actions, safety re-evaluation, and UI expectations for interrupted workflow runs.
 ## Requirements
 ### Requirement: Resume Plan Computation
 The system SHALL compute a resume plan for interrupted workflow runs before allowing execution to continue.
@@ -45,5 +45,3 @@ The workflow panel SHALL show interrupted runs with clear Resume, Restart, and A
 #### Scenario: Display blocked resume reason
 - **WHEN** resume is blocked by stale inputs or locks
 - **THEN** the UI SHALL show the blocking reason before any action is taken.
-*** Add File: /Users/tonypham/MEGA/WebApp/kanna/openspec/changes/add-workflow-resume-orchestration/tasks.md
-

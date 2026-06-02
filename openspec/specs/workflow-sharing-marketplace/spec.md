@@ -1,7 +1,7 @@
 # workflow-sharing-marketplace Specification
 
 ## Purpose
-TBD - created by archiving change add-workflow-sharing-marketplace. Update Purpose after archive.
+Define workflow sharing by ID, private isolation, governed global publishing, import lineage, and stable project pins for shared workflows.
 ## Requirements
 ### Requirement: Share Workflow by ID
 The system SHALL allow workflow owners to create share identifiers that let another user import a specific workflow definition or version.
@@ -38,5 +38,3 @@ The system SHALL keep project workflow registrations pinned when shared or marke
 #### Scenario: Shared workflow update
 - **WHEN** a newer version of an imported/shared workflow becomes available
 - **THEN** existing project registrations SHALL remain pinned until the user explicitly upgrades.
-*** Add File: /Users/tonypham/MEGA/WebApp/kanna/openspec/changes/add-workflow-sharing-marketplace/tasks.md
-

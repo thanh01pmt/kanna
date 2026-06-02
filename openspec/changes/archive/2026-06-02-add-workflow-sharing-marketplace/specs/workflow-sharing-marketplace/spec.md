@@ -35,7 +35,6 @@ The system SHALL keep project workflow registrations pinned when shared or marke
 #### Scenario: Shared workflow update
 - **WHEN** a newer version of an imported/shared workflow becomes available
 - **THEN** existing project registrations SHALL remain pinned until the user explicitly upgrades.
-*** Add File: /Users/tonypham/MEGA/WebApp/kanna/openspec/changes/add-workflow-sharing-marketplace/tasks.md
 ## 1. Sharing Model
 - [ ] 1.1 Add share identifiers/tokens for workflow definitions or versions.
 - [ ] 1.2 Add import lineage metadata for shared workflows.

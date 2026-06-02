@@ -18,6 +18,7 @@ import type {
   EditorPreset,
   WorkflowRunProjection,
   FlowEdgeProvenance,
+  WorkflowMarketplaceMetadata,
 } from "./types"
 
 export type { EditorPreset }
@@ -109,6 +110,18 @@ export type ClientCommand =
   | { type: "workflow.updateArtifactImpact"; projectId: string; runId?: string; sourceArtifactId: string; impactedArtifactId?: string; status: "needs_review" | "reviewed_ok" | "needs_repair" | "repaired" | "not_impacted" | "maybe_impacted"; reason?: string }
   | { type: "workflow.markArtifact"; projectId: string; artifactId: string; action: "invalidate" | "accept_source_of_truth"; reason?: string }
   | { type: "workflow.recoverLock"; projectId: string; lockId: string }
+  | { type: "workflow.inspectResumePlan"; projectId: string; runId: string }
+  | { type: "workflow.resumeRun"; projectId: string; runId: string }
+  | { type: "workflow.restartRun"; projectId: string; runId: string }
+  | { type: "workflow.archiveRun"; projectId: string; runId: string }
+  | { type: "workflow.spawnParallelJob"; projectId: string; parentRunId: string; workflowDefinitionId: string }
+  | { type: "workflow.mergeParallelJob"; projectId: string; jobId: string }
+  | { type: "workflow.discardParallelJob"; projectId: string; jobId: string }
+  | { type: "workflow.shareWorkflow"; projectId: string; definitionId: string }
+  | { type: "workflow.importWorkflowById"; projectId: string; shareId: string }
+  | { type: "workflow.publishGlobalRequest"; projectId: string; definitionId: string; metadata: WorkflowMarketplaceMetadata }
+  | { type: "workflow.approveGlobalPublish"; projectId: string; definitionId: string }
+  | { type: "workflow.rejectGlobalPublish"; projectId: string; definitionId: string }
   | { type: "update.check"; force?: boolean }
   | { type: "update.install" }
   | { type: "settings.readKeybindings" }

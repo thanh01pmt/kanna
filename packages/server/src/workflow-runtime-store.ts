@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { createHash, randomUUID } from "node:crypto"
 import path from "node:path"
 import { createClient } from "@supabase/supabase-js"
-import type { AgentProvider, TranscriptEntry, WorkflowArtifactImpact, WorkflowArtifactRef, WorkflowDefinitionSummary, WorkflowNode, WorkflowRunProjection, WorkflowPack, ProjectFlowEdge, FlowEdgeProvenance, FlowEdgeStatus, WorkflowLock, WorkflowLockConflict } from "@kanna/shared/types"
+import type { AgentProvider, TranscriptEntry, WorkflowArtifactImpact, WorkflowArtifactRef, WorkflowCheckpoint, WorkflowDefinitionSummary, WorkflowMarketplaceMetadata, WorkflowNode, WorkflowNodeStatus, WorkflowRunProjection, WorkflowPack, ProjectFlowEdge, FlowEdgeProvenance, FlowEdgeStatus, WorkflowLock, WorkflowLockConflict, WorkflowSubAgentJob } from "@kanna/shared/types"
 import type { WorkflowManifest, WorkflowNodeDefinition } from "@kanna/shared/workflow-schema"
 import { createCurriculumWorkflowSeed, type WorkflowSeedNodeRow } from "./workflow-platform/curriculum-seed"
 
@@ -94,12 +94,12 @@ export interface WorkflowRuntimeStore {
   resumeRun?(args: { projectId: string; runId: string }): Promise<WorkflowRunProjection>
   restartRun?(args: { projectId: string; runId: string }): Promise<WorkflowRunProjection>
   archiveRun?(args: { projectId: string; runId: string }): Promise<WorkflowRunProjection>
-  spawnParallelJob?(args: { projectId: string; parentRunId: string; workflowDefinitionId: string }): Promise<import("@kanna/shared/types").WorkflowSubAgentJob>
+  spawnParallelJob?(args: { projectId: string; parentRunId: string; workflowDefinitionId: string }): Promise<WorkflowSubAgentJob>
   mergeParallelJob?(args: { projectId: string; jobId: string }): Promise<WorkflowRunProjection>
-  discardParallelJob?(args: { projectId: string; jobId: string }): Promise<import("@kanna/shared/types").WorkflowSubAgentJob>
+  discardParallelJob?(args: { projectId: string; jobId: string }): Promise<WorkflowSubAgentJob>
   shareWorkflow?(args: { projectId: string; definitionId: string }): Promise<string>
   importWorkflowById?(args: { projectId: string; shareId: string }): Promise<WorkflowDefinitionSummary>
-  publishGlobalRequest?(args: { projectId: string; definitionId: string; metadata: import("@kanna/shared/types").WorkflowMarketplaceMetadata }): Promise<void>
+  publishGlobalRequest?(args: { projectId: string; definitionId: string; metadata: WorkflowMarketplaceMetadata }): Promise<void>
   approveGlobalPublish?(args: { projectId: string; definitionId: string }): Promise<void>
   rejectGlobalPublish?(args: { projectId: string; definitionId: string }): Promise<void>
 }
@@ -1098,7 +1098,7 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
     return newRun
   }
 
-  async spawnParallelJob(args: { projectId: string; parentRunId: string; workflowDefinitionId: string }): Promise<import("@kanna/shared/types").WorkflowSubAgentJob> {
+  async spawnParallelJob(args: { projectId: string; parentRunId: string; workflowDefinitionId: string }): Promise<WorkflowSubAgentJob> {
     const parentRun = this.runsById.get(args.parentRunId)
     if (!parentRun) throw new Error("Parent run not found")
 
@@ -1110,7 +1110,7 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
     const branchName = `subagent-${args.workflowDefinitionId}-${jobId}`
     const worktreePath = `worktrees/subagent-${args.workflowDefinitionId}-${jobId}`
 
-    const job: import("@kanna/shared/types").WorkflowSubAgentJob = {
+    const job: WorkflowSubAgentJob = {
       id: jobId,
       projectId: args.projectId,
       parentRunId: args.parentRunId,
@@ -1143,7 +1143,7 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
   }
 
   async mergeParallelJob(args: { projectId: string; jobId: string }): Promise<WorkflowRunProjection> {
-    let targetJob: import("@kanna/shared/types").WorkflowSubAgentJob | undefined
+    let targetJob: WorkflowSubAgentJob | undefined
     let parentRun: WorkflowRunProjection | undefined
 
     for (const run of this.runsById.values()) {
@@ -1207,7 +1207,7 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
       const updatedArtifact = {
         ...artifact,
         changed: true,
-        approvalStatus: "needs_review" as any
+        workflowStatus: "needs_review" as const
       }
       
       const existingIdx = parentRun.latestArtifacts.findIndex((a) => a.path === artifact.path)
@@ -1231,8 +1231,8 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
     return parentRun
   }
 
-  async discardParallelJob(args: { projectId: string; jobId: string }): Promise<import("@kanna/shared/types").WorkflowSubAgentJob> {
-    let targetJob: import("@kanna/shared/types").WorkflowSubAgentJob | undefined
+  async discardParallelJob(args: { projectId: string; jobId: string }): Promise<WorkflowSubAgentJob> {
+    let targetJob: WorkflowSubAgentJob | undefined
     let parentRun: WorkflowRunProjection | undefined
 
     for (const run of this.runsById.values()) {
@@ -1324,7 +1324,7 @@ export class InMemoryWorkflowRuntimeStore implements WorkflowRuntimeStore {
     return importedDef
   }
 
-  async publishGlobalRequest(args: { projectId: string; definitionId: string; metadata: import("@kanna/shared/types").WorkflowMarketplaceMetadata }): Promise<void> {
+  async publishGlobalRequest(args: { projectId: string; definitionId: string; metadata: WorkflowMarketplaceMetadata }): Promise<void> {
     const def = this.definitionsById.get(args.definitionId)
     if (!def) {
       throw new Error("Workflow not found")
