@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react"
 import {
   BookText,
   Command,
@@ -28,6 +28,12 @@ import {
   Plus,
   Settings,
   ArrowUpCircle,
+  Upload,
+  FileText,
+  Sparkles,
+  Eye,
+  Package,
+  ArrowRight,
 } from "lucide-react"
 import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
@@ -55,7 +61,7 @@ import { markdownComponents } from "../components/messages/shared"
 import { ChatPreferenceControls } from "../components/chat-ui/ChatPreferenceControls"
 import { EDITOR_OPTIONS, EditorIcon } from "../components/editor-icons"
 import { Button, buttonVariants } from "../components/ui/button"
-import { Dialog, DialogBody, DialogContent, DialogFooter, DialogTitle } from "../components/ui/dialog"
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog"
 import { Input } from "../components/ui/input"
 import { SettingsHeaderButton } from "../components/ui/settings-header-button"
 import type { EditorPreset } from "@kanna/shared/protocol"
@@ -939,35 +945,18 @@ export function WorkflowSection({ state }: { state: KannaState }) {
   }
 
   const [isImportOpen, setIsImportOpen] = useState(false)
+  const [importMode, setImportMode] = useState<"upload" | "write">("upload")
   const [importSlug, setImportSlug] = useState("")
   const [importName, setImportName] = useState("")
   const [importDesc, setImportDesc] = useState("")
-  const [importManifestText, setImportManifestText] = useState(
-    [
-      "---",
-      "name: custom-workflow",
-      "version: 1.0.0",
-      "description: A custom user workflow definition",
-      "entrypoint: true",
-      "role: initial",
-      "inputs:",
-      "  - type: file",
-      "    path: LEARNER_PROFILE.md",
-      "outputs:",
-      "  - type: file",
-      "    path: CURRICULUM_FRAMEWORK.md",
-      "artifacts:",
-      "  - id: framework",
-      "    name: Framework",
-      "    pattern: CURRICULUM_FRAMEWORK.md",
-      "---",
-      "",
-      "Use LEARNER_PROFILE.md to create CURRICULUM_FRAMEWORK.md.",
-    ].join("\n")
-  )
+  const [importManifestText, setImportManifestText] = useState("")
   const [importError, setImportError] = useState<string | null>(null)
   const [importWarnings, setImportWarnings] = useState<string[]>([])
   const [isImporting, setIsImporting] = useState(false)
+  const [isDragging, setIsDragging] = useState(false)
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null)
+  const [parsedPreview, setParsedPreview] = useState<Record<string, any> | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [deletingDefinitionId, setDeletingDefinitionId] = useState<string | null>(null)
 
   const projectId = state.activeProjectId
@@ -1117,6 +1106,97 @@ export function WorkflowSection({ state }: { state: KannaState }) {
     }
   }
 
+  const processImportText = useCallback((text: string) => {
+    setImportError(null)
+    setImportWarnings([])
+    setParsedPreview(null)
+    if (!text.trim()) return
+    try {
+      const parsed = parseWorkflowImportText(text)
+      setImportWarnings(parsed.warnings)
+      setParsedPreview(parsed.manifest)
+      // Auto-fill fields from parsed manifest if empty
+      if (!importSlug && parsed.manifest.name) {
+        setImportSlug(String(parsed.manifest.name).toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, ""))
+      }
+      if (!importName && parsed.manifest.name) setImportName(String(parsed.manifest.name))
+      if (!importDesc && parsed.manifest.description) setImportDesc(String(parsed.manifest.description))
+    } catch (err: any) {
+      setImportError(err.message || String(err))
+    }
+  }, [importSlug, importName, importDesc])
+
+  const handleFileContent = useCallback((content: string, fileName: string) => {
+    setImportManifestText(content)
+    setUploadedFileName(fileName)
+    setImportError(null)
+    setImportWarnings([])
+    // Reset fields so auto-fill can repopulate
+    setImportSlug("")
+    setImportName("")
+    setImportDesc("")
+    // Parse after state reset
+    try {
+      const parsed = parseWorkflowImportText(content)
+      setImportWarnings(parsed.warnings)
+      setParsedPreview(parsed.manifest)
+      if (parsed.manifest.name) {
+        setImportSlug(String(parsed.manifest.name).toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, ""))
+        setImportName(String(parsed.manifest.name))
+      }
+      if (parsed.manifest.description) setImportDesc(String(parsed.manifest.description))
+    } catch (err: any) {
+      setImportError(err.message || String(err))
+    }
+  }, [])
+
+  const handleFileDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+    const file = e.dataTransfer?.files?.[0]
+    if (!file) return
+    if (!file.name.endsWith(".md") && !file.name.endsWith(".json")) {
+      setImportError("Only .md and .json files are supported.")
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const content = ev.target?.result
+      if (typeof content === "string") handleFileContent(content, file.name)
+    }
+    reader.readAsText(file)
+  }, [handleFileContent])
+
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.name.endsWith(".md") && !file.name.endsWith(".json")) {
+      setImportError("Only .md and .json files are supported.")
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const content = ev.target?.result
+      if (typeof content === "string") handleFileContent(content, file.name)
+    }
+    reader.readAsText(file)
+  }, [handleFileContent])
+
+  const resetImportState = useCallback(() => {
+    setImportMode("upload")
+    setImportSlug("")
+    setImportName("")
+    setImportDesc("")
+    setImportManifestText("")
+    setImportError(null)
+    setImportWarnings([])
+    setUploadedFileName(null)
+    setParsedPreview(null)
+    setIsDragging(false)
+    if (fileInputRef.current) fileInputRef.current.value = ""
+  }, [])
+
   const handleImport = async () => {
     setIsImporting(true)
     setImportError(null)
@@ -1140,9 +1220,7 @@ export function WorkflowSection({ state }: { state: KannaState }) {
       })
 
       setIsImportOpen(false)
-      setImportSlug("")
-      setImportName("")
-      setImportDesc("")
+      resetImportState()
       loadDefinitions()
     } catch (err: any) {
       setImportError(err.message || String(err))
@@ -1367,66 +1445,260 @@ export function WorkflowSection({ state }: { state: KannaState }) {
       )}
 
       {/* Import Modal */}
-      <Dialog open={isImportOpen} onOpenChange={setIsImportOpen}>
-        <DialogContent className="max-w-xl">
-          <DialogTitle>Import Workflow Definition</DialogTitle>
-          <DialogBody className="space-y-4 pt-4">
+      <Dialog open={isImportOpen} onOpenChange={(open) => { if (!open) resetImportState(); setIsImportOpen(open) }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Import Workflow</DialogTitle>
+          </DialogHeader>
+          <DialogBody className="space-y-5 pt-4">
+            {/* Mode Tabs */}
+            <SegmentedControl
+              value={importMode}
+              onValueChange={(v) => { setImportMode(v); setImportError(null); setImportWarnings([]) }}
+              options={[
+                { value: "upload" as const, label: "Upload File", icon: Upload },
+                { value: "write" as const, label: "Write Manually", icon: Code },
+              ]}
+              size="sm"
+              className="w-full"
+              optionClassName="flex-1 justify-center"
+            />
+
+            {/* Error & Warnings */}
             {importError && (
-              <div className="p-3 text-xs bg-red-500/10 text-red-600 dark:text-red-400 rounded border border-red-500/20">
-                {importError}
+              <div className="flex items-start gap-2.5 rounded-lg border border-red-500/20 bg-red-500/5 p-3 text-xs text-red-600 dark:text-red-400">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{importError}</span>
               </div>
             )}
             {importWarnings.length > 0 && (
-              <div className="space-y-1 rounded border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400">
+              <div className="space-y-1 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-amber-600 dark:text-amber-400">
                 {importWarnings.map((warning) => (
-                  <div key={warning}>{warning}</div>
+                  <div key={warning} className="flex items-start gap-2">
+                    <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                    <span>{warning}</span>
+                  </div>
                 ))}
               </div>
             )}
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-foreground">Slug</label>
-                <Input
-                  placeholder="e.g. create-lesson"
-                  value={importSlug}
-                  onChange={(e) => setImportSlug(e.target.value)}
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-foreground">Name</label>
-                <Input
-                  placeholder="e.g. Create Lesson"
-                  value={importName}
-                  onChange={(e) => setImportName(e.target.value)}
-                />
-              </div>
-            </div>
 
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-foreground">Description</label>
-              <Input
-                placeholder="Brief description of the workflow"
-                value={importDesc}
-                onChange={(e) => setImportDesc(e.target.value)}
-              />
-            </div>
+            {/* Upload Mode */}
+            {importMode === "upload" && (
+              <div className="space-y-4">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".md,.json"
+                  className="hidden"
+                  onChange={handleFileSelect}
+                />
+                {!uploadedFileName ? (
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
+                    onDragLeave={(e) => { e.preventDefault(); setIsDragging(false) }}
+                    onDrop={handleFileDrop}
+                    className={cn(
+                      "group relative flex w-full flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed py-10 px-6 text-center transition-all duration-200 cursor-pointer",
+                      isDragging
+                        ? "border-primary bg-primary/5 scale-[1.01]"
+                        : "border-border hover:border-muted-foreground/40 hover:bg-muted/30"
+                    )}
+                  >
+                    <div className={cn(
+                      "flex h-12 w-12 items-center justify-center rounded-xl transition-colors",
+                      isDragging ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground group-hover:bg-muted/80"
+                    )}>
+                      <Upload className="h-6 w-6" />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-foreground">
+                        {isDragging ? "Drop to import" : "Drop a workflow file here"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Supports <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">.md</code> with YAML frontmatter or <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">.json</code> manifests
+                      </p>
+                    </div>
+                    <span className="text-xs text-muted-foreground/60">or click to browse</span>
+                  </button>
+                ) : (
+                  <div className="flex items-center justify-between rounded-xl border border-border bg-card/30 p-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10">
+                        <FileText className="h-4.5 w-4.5 text-emerald-500" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-foreground">{uploadedFileName}</p>
+                        <p className="text-xs text-muted-foreground">{(importManifestText.length / 1024).toFixed(1)} KB</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                      <button
+                        type="button"
+                        onClick={() => { setUploadedFileName(null); setImportManifestText(""); setParsedPreview(null); setImportError(null); if (fileInputRef.current) fileInputRef.current.value = "" }}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-foreground">Workflow Markdown or Manifest JSON</label>
-              <textarea
-                value={importManifestText}
-                onChange={(e) => setImportManifestText(e.target.value)}
-                className="w-full h-48 font-mono text-xs p-3 rounded-lg border border-border bg-background focus:ring-1 focus:ring-primary focus:outline-none"
-              />
-            </div>
+            {/* Write Mode */}
+            {importMode === "write" && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-foreground">Workflow Markdown or JSON</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setImportManifestText([
+                        "---",
+                        "name: my-workflow",
+                        "version: 1.0.0",
+                        "description: Describe your workflow here",
+                        "entrypoint: true",
+                        "role: initial",
+                        "inputs:",
+                        "  - type: file",
+                        "    path: INPUT_FILE.md",
+                        "outputs:",
+                        "  - type: file",
+                        "    path: OUTPUT_FILE.md",
+                        "artifacts:",
+                        "  - id: output",
+                        "    name: Output",
+                        "    pattern: OUTPUT_FILE.md",
+                        "---",
+                        "",
+                        "# Workflow Instructions",
+                        "",
+                        "Describe the steps for this workflow here.",
+                      ].join("\n"))
+                    }}
+                    className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <Sparkles className="h-3 w-3" />
+                    Insert template
+                  </button>
+                </div>
+                <textarea
+                  value={importManifestText}
+                  onChange={(e) => setImportManifestText(e.target.value)}
+                  onBlur={() => { if (importManifestText.trim()) processImportText(importManifestText) }}
+                  placeholder={"---\nname: my-workflow\nversion: 1.0.0\n---\n\nWorkflow instructions here..."}
+                  className="w-full h-56 font-mono text-xs p-3 rounded-lg border border-border bg-background text-foreground placeholder:text-muted-foreground/40 focus:ring-1 focus:ring-primary focus:border-primary focus:outline-none resize-none transition-colors"
+                />
+                {importManifestText.trim() && !parsedPreview && !importError && (
+                  <button
+                    type="button"
+                    onClick={() => processImportText(importManifestText)}
+                    className="flex items-center gap-1.5 text-xs font-medium text-primary hover:text-primary/80 transition-colors"
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                    Parse & preview
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Metadata Fields */}
+            {(uploadedFileName || importManifestText.trim()) && (
+              <div className="space-y-3 pt-1">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-foreground">Slug</label>
+                    <Input
+                      placeholder="e.g. create-lesson"
+                      value={importSlug}
+                      onChange={(e) => setImportSlug(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-foreground">Display Name</label>
+                    <Input
+                      placeholder="e.g. Create Lesson"
+                      value={importName}
+                      onChange={(e) => setImportName(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-foreground">Description</label>
+                  <Input
+                    placeholder="Brief description of the workflow"
+                    value={importDesc}
+                    onChange={(e) => setImportDesc(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Parsed Preview */}
+            {parsedPreview && (
+              <div className="rounded-xl border border-border bg-card/20 overflow-hidden">
+                <div className="flex items-center gap-2 border-b border-border px-3.5 py-2.5 bg-muted/30">
+                  <Eye className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-xs font-medium text-foreground">Parsed Manifest</span>
+                </div>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-2 p-3.5 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground">Name</span>
+                    <span className="font-medium text-foreground truncate">{String(parsedPreview.name || "—")}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground">Version</span>
+                    <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-foreground">{String(parsedPreview.version || "—")}</code>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Package className="h-3 w-3 text-muted-foreground" />
+                    <span className="text-muted-foreground">Artifacts</span>
+                    <span className="font-medium text-foreground">{Array.isArray(parsedPreview.artifacts) ? parsedPreview.artifacts.length : 0}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground">Role</span>
+                    <span className="font-medium text-foreground">{String(parsedPreview.role || "normal")}</span>
+                  </div>
+                  {Array.isArray(parsedPreview.inputs) && parsedPreview.inputs.length > 0 && (
+                    <div className="col-span-2 flex items-start gap-2">
+                      <ArrowRight className="mt-0.5 h-3 w-3 text-emerald-500 shrink-0" />
+                      <span className="text-muted-foreground shrink-0">Inputs</span>
+                      <span className="font-mono text-[10px] text-foreground truncate">
+                        {parsedPreview.inputs.map((i: any) => i.path || i.value || "?").join(", ")}
+                      </span>
+                    </div>
+                  )}
+                  {Array.isArray(parsedPreview.outputs) && parsedPreview.outputs.length > 0 && (
+                    <div className="col-span-2 flex items-start gap-2">
+                      <ArrowRight className="mt-0.5 h-3 w-3 text-sky-500 shrink-0 rotate-180" />
+                      <span className="text-muted-foreground shrink-0">Outputs</span>
+                      <span className="font-mono text-[10px] text-foreground truncate">
+                        {parsedPreview.outputs.map((o: any) => o.path || o.value || "?").join(", ")}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </DialogBody>
-          <DialogFooter className="mt-6 flex justify-end gap-2">
-            <Button variant="outline" size="sm" onClick={() => setIsImportOpen(false)} disabled={isImporting}>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => { resetImportState(); setIsImportOpen(false) }} disabled={isImporting}>
               Cancel
             </Button>
-            <Button size="sm" onClick={handleImport} disabled={isImporting}>
-              {isImporting ? "Importing..." : "Import"}
+            <Button
+              size="sm"
+              onClick={handleImport}
+              disabled={isImporting || !importManifestText.trim()}
+            >
+              {isImporting ? (
+                <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />Importing…</>
+              ) : (
+                <><Plus className="mr-2 h-3.5 w-3.5" />Import</>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
