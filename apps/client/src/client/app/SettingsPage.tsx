@@ -933,6 +933,17 @@ export function parseWorkflowImportText(text: string) {
   return { manifest, warnings }
 }
 
+function formatWorkflowManifest(manifest: Record<string, any> | undefined, options?: { bumpPatchVersion?: boolean }) {
+  const nextManifest = { ...(manifest ?? {}) }
+  if (options?.bumpPatchVersion && typeof nextManifest.version === "string") {
+    const match = /^(\d+)\.(\d+)\.(\d+)(.*)$/.exec(nextManifest.version)
+    if (match) {
+      nextManifest.version = `${match[1]}.${match[2]}.${Number(match[3]) + 1}${match[4] ?? ""}`
+    }
+  }
+  return JSON.stringify(nextManifest, null, 2)
+}
+
 export function WorkflowSection({ state }: { state: KannaState }) {
   const [definitions, setDefinitions] = useState<WorkflowDefinitionSummary[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -959,6 +970,11 @@ export function WorkflowSection({ state }: { state: KannaState }) {
   const [parsedPreview, setParsedPreview] = useState<Record<string, any> | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [deletingDefinitionId, setDeletingDefinitionId] = useState<string | null>(null)
+  const [workflowDetailsMode, setWorkflowDetailsMode] = useState<"view" | "edit" | null>(null)
+  const [selectedWorkflow, setSelectedWorkflow] = useState<WorkflowDefinitionSummary | null>(null)
+  const [workflowManifestText, setWorkflowManifestText] = useState("")
+  const [workflowDetailsError, setWorkflowDetailsError] = useState<string | null>(null)
+  const [isSavingWorkflowDetails, setIsSavingWorkflowDetails] = useState(false)
 
   const projectId = state.activeProjectId
 
@@ -1104,6 +1120,54 @@ export function WorkflowSection({ state }: { state: KannaState }) {
       loadDefinitions()
     } catch (err) {
       console.error(err)
+    }
+  }
+
+  const openWorkflowDetails = (def: WorkflowDefinitionSummary, mode: "view" | "edit") => {
+    setSelectedWorkflow(def)
+    setWorkflowDetailsMode(mode)
+    setWorkflowDetailsError(null)
+    setWorkflowManifestText(formatWorkflowManifest(def.manifest, { bumpPatchVersion: mode === "edit" }))
+  }
+
+  const closeWorkflowDetails = (force = false) => {
+    if (isSavingWorkflowDetails && !force) return
+    setWorkflowDetailsMode(null)
+    setSelectedWorkflow(null)
+    setWorkflowManifestText("")
+    setWorkflowDetailsError(null)
+  }
+
+  const handleSaveWorkflowDetails = async () => {
+    if (!selectedWorkflow) return
+    setIsSavingWorkflowDetails(true)
+    setWorkflowDetailsError(null)
+    try {
+      const parsed = JSON.parse(workflowManifestText)
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("Workflow manifest must be a JSON object.")
+      }
+      if (typeof parsed.version !== "string" || !parsed.version.trim()) {
+        throw new Error("Workflow manifest must include a version.")
+      }
+
+      await state.socket.command({
+        type: "workflow.publishManifest",
+        projectId: projectId ?? undefined,
+        manifest: {
+          ...parsed,
+          name: selectedWorkflow.name,
+          description: typeof parsed.description === "string" ? parsed.description : selectedWorkflow.description ?? "",
+        },
+        sourceMarkdown: workflowManifestText,
+      })
+
+      closeWorkflowDetails(true)
+      loadDefinitions()
+    } catch (err: any) {
+      setWorkflowDetailsError(err.message || String(err))
+    } finally {
+      setIsSavingWorkflowDetails(false)
     }
   }
 
@@ -1422,6 +1486,25 @@ export function WorkflowSection({ state }: { state: KannaState }) {
                         <div className="flex items-center gap-1 border-l border-border pl-3">
                           <button
                             type="button"
+                            onClick={() => openWorkflowDetails(def, "view")}
+                            title="View workflow manifest"
+                            aria-label={`View ${def.name}`}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openWorkflowDetails(def, "edit")}
+                            disabled={def.isOfficialGlobal}
+                            title={def.isOfficialGlobal ? "Official workflows cannot be edited" : "Edit workflow manifest"}
+                            aria-label={`Edit ${def.name}`}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                          >
+                            <Code className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handleDeleteDefinition(def)}
                             disabled={!canDeleteDefinition || deletingDefinitionId === def.id}
                             title={canDeleteDefinition ? "Delete workflow definition" : "Official workflows cannot be deleted"}
@@ -1704,6 +1787,64 @@ export function WorkflowSection({ state }: { state: KannaState }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={workflowDetailsMode !== null} onOpenChange={(open) => { if (!open) closeWorkflowDetails() }}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{workflowDetailsMode === "edit" ? "Edit Workflow" : "View Workflow"}</DialogTitle>
+          </DialogHeader>
+          <DialogBody className="space-y-4 pt-4">
+            {selectedWorkflow && (
+              <div className="rounded-lg border border-border bg-card/20 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-foreground">{selectedWorkflow.name}</span>
+                  <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">{selectedWorkflow.slug}</code>
+                  {selectedWorkflow.currentVersion && (
+                    <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">v{selectedWorkflow.currentVersion}</code>
+                  )}
+                </div>
+                {workflowDetailsMode === "edit" && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Saving publishes a new workflow version for this definition. The version field has been bumped automatically when possible.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {workflowDetailsError && (
+              <div className="flex items-start gap-2.5 rounded-lg border border-red-500/20 bg-red-500/5 p-3 text-xs text-red-600 dark:text-red-400">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{workflowDetailsError}</span>
+              </div>
+            )}
+
+            <textarea
+              value={workflowManifestText}
+              onChange={(e) => setWorkflowManifestText(e.target.value)}
+              readOnly={workflowDetailsMode !== "edit"}
+              spellCheck={false}
+              className={cn(
+                "h-[48vh] w-full resize-none rounded-lg border border-border bg-background p-3 font-mono text-xs text-foreground outline-none transition-colors focus:border-primary focus:ring-1 focus:ring-primary",
+                workflowDetailsMode !== "edit" && "cursor-default bg-muted/20 focus:border-border focus:ring-0"
+              )}
+            />
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={closeWorkflowDetails} disabled={isSavingWorkflowDetails}>
+              {workflowDetailsMode === "edit" ? "Cancel" : "Close"}
+            </Button>
+            {workflowDetailsMode === "edit" && (
+              <Button size="sm" onClick={handleSaveWorkflowDetails} disabled={isSavingWorkflowDetails || !workflowManifestText.trim()}>
+                {isSavingWorkflowDetails ? (
+                  <><Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />Saving…</>
+                ) : (
+                  <><CheckCircle2 className="mr-2 h-3.5 w-3.5" />Save</>
+                )}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -1716,6 +1857,7 @@ type McpServerConfig = {
 
 type McpConfig = {
   mcpServers?: Record<string, McpServerConfig>
+  tools?: Record<string, Record<string, boolean>>
 }
 
 function parseMcpConfig(content: string): McpConfig {
@@ -1723,6 +1865,7 @@ function parseMcpConfig(content: string): McpConfig {
   return {
     ...parsed,
     mcpServers: parsed.mcpServers ?? {},
+    tools: parsed.tools ?? {},
   }
 }
 
@@ -1822,7 +1965,10 @@ export function McpSection({
         type: "project.writeFile",
         projectId,
         relativePath: ".mcp.json",
-        content: `${JSON.stringify({ mcpServers: nextConfig.mcpServers ?? {} }, null, 2)}\n`,
+        content: `${JSON.stringify({
+          mcpServers: nextConfig.mcpServers ?? {},
+          tools: nextConfig.tools ?? {},
+        }, null, 2)}\n`,
       })
       setConfig(nextConfig)
     } catch (error) {
@@ -1862,6 +2008,25 @@ export function McpSection({
     const nextServers = { ...(config.mcpServers ?? {}) }
     delete nextServers[name]
     await saveConfig({ ...config, mcpServers: nextServers }, name)
+  }
+
+  const handleToggleTool = async (serverName: string, toolName: string) => {
+    const currentTools = config.tools ?? {}
+    const serverTools = currentTools[serverName] ?? {}
+    const nextValue = serverTools[toolName] === false ? true : false
+
+    const nextConfig = {
+      ...config,
+      tools: {
+        ...currentTools,
+        [serverName]: {
+          ...serverTools,
+          [toolName]: nextValue,
+        },
+      },
+    }
+    setConfig(nextConfig)
+    await saveConfig(nextConfig)
   }
 
   useEffect(() => {
@@ -1972,14 +2137,32 @@ export function McpSection({
 
                   {isKannaWorkflow ? (
                     <div className="divide-y divide-border">
-                      {KANNA_MCP_TOOLS.map((tool) => (
-                        <div key={tool.name} className="grid gap-1 px-3 py-2.5 sm:grid-cols-[220px_minmax(0,1fr)] sm:gap-4">
-                          <code className="truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground" title={tool.name}>
-                            {tool.name}
-                          </code>
-                          <div className="text-xs leading-relaxed text-muted-foreground">{tool.description}</div>
-                        </div>
-                      ))}
+                      {KANNA_MCP_TOOLS.map((tool) => {
+                        const isEnabled = config.tools?.[name]?.[tool.name] !== false
+                        return (
+                          <div key={tool.name} className="flex items-center justify-between px-3 py-2.5 gap-4">
+                            <div className="flex flex-col gap-1 min-w-0 flex-1 sm:grid sm:grid-cols-[200px_1fr] sm:gap-4 sm:items-start">
+                              <code className="truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground self-start" title={tool.name}>
+                                {tool.name}
+                              </code>
+                              <div className="text-xs leading-relaxed text-muted-foreground">{tool.description}</div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => void handleToggleTool(name, tool.name)}
+                              className="text-muted-foreground hover:text-foreground transition-colors p-1"
+                              title={isEnabled ? "Disable tool" : "Enable tool"}
+                              aria-label={`${isEnabled ? "Disable" : "Enable"} ${tool.name}`}
+                            >
+                              {isEnabled ? (
+                                <ToggleRight className="h-6 w-6 text-emerald-500" />
+                              ) : (
+                                <ToggleLeft className="h-6 w-6 text-muted-foreground/60" />
+                              )}
+                            </button>
+                          </div>
+                        )
+                      })}
                     </div>
                   ) : (
                     <div className="px-3 py-3 text-xs leading-relaxed text-muted-foreground">

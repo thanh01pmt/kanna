@@ -3,6 +3,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod"
 import { createDefaultWorkflowRuntimeStore, type WorkflowRuntimeStore } from "@kanna/server/workflow-runtime-store"
 import { WorkflowManifestSchema } from "@kanna/shared/workflow-schema"
+import * as fs from "fs"
+import * as path from "path"
 
 const server = new McpServer({
   name: "kanna-workflow",
@@ -10,6 +12,27 @@ const server = new McpServer({
 })
 
 const store = createDefaultWorkflowRuntimeStore()
+
+let enabledTools: Record<string, boolean> = {}
+try {
+  const mcpConfigPath = path.join(process.cwd(), ".mcp.json")
+  if (fs.existsSync(mcpConfigPath)) {
+    const configContent = fs.readFileSync(mcpConfigPath, "utf8")
+    const mcpConfig = JSON.parse(configContent)
+    if (mcpConfig && typeof mcpConfig === "object" && mcpConfig.tools && typeof mcpConfig.tools === "object") {
+      const kannaTools = mcpConfig.tools["kanna-workflow"]
+      if (kannaTools && typeof kannaTools === "object") {
+        enabledTools = kannaTools
+      }
+    }
+  }
+} catch (error) {
+  // Silent fallback
+}
+
+function isToolEnabled(toolName: string): boolean {
+  return enabledTools[toolName] !== false
+}
 
 function jsonText(value: unknown) {
   return JSON.stringify(value, null, 2)
