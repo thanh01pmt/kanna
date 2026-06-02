@@ -22,6 +22,7 @@ export interface WorkflowTrackerActions {
   onInvalidateArtifact?: (artifact: WorkflowArtifactRef) => void
   onAcceptArtifact?: (artifact: WorkflowArtifactRef) => void
   onRerunArtifact?: (artifact: WorkflowArtifactRef) => void
+  onViewArtifact?: (artifact: WorkflowArtifactRef) => void
   workflowDefinitions?: WorkflowDefinitionSummary[]
   onStartWorkflow?: (definition: WorkflowDefinitionSummary) => void | Promise<void>
   isStartingWorkflow?: boolean

@@ -602,6 +602,16 @@ export function ChatPage() {
   }, [projectId, state.activeChatId, state.runtime?.planMode, state.runtime?.provider, state.socket])
 
   const handleReviewDownstream = useCallback((artifact: WorkflowArtifactRef) => {
+    if (projectId) {
+      void state.socket.command({
+        type: "workflow.updateArtifactImpact",
+        projectId,
+        runId: workflowProjection?.id,
+        sourceArtifactId: artifact.id,
+        status: "needs_review",
+        reason: `User requested downstream review for ${artifact.path}.`,
+      })
+    }
     void sendWorkflowAgentRequest([
       `Review downstream artifacts impacted by ${artifact.path}.`,
       "",
@@ -610,29 +620,108 @@ export function ChatPage() {
       "- Mark each as reviewed_ok, needs_repair, or maybe_impacted.",
       "- Repair only when necessary and explain what changed.",
     ].join("\n"))
-  }, [sendWorkflowAgentRequest])
+  }, [projectId, sendWorkflowAgentRequest, state.socket, workflowProjection?.id])
 
   const handleRerunNode = useCallback((node: WorkflowNode) => {
     void sendWorkflowAgentRequest(`Rerun the workflow node: ${node.name}.`)
   }, [sendWorkflowAgentRequest])
 
   const handleRerunArtifact = useCallback((artifact: WorkflowArtifactRef) => {
+    if (projectId) {
+      void state.socket.command({
+        type: "workflow.markArtifact",
+        projectId,
+        artifactId: artifact.id,
+        action: "invalidate",
+        reason: `User requested rerun for ${artifact.path}.`,
+      })
+    }
     void sendWorkflowAgentRequest(`Rerun the steps to produce the artifact: ${artifact.path}.`)
-  }, [sendWorkflowAgentRequest])
+  }, [projectId, sendWorkflowAgentRequest, state.socket])
+
+  const handleViewArtifact = useCallback((artifact: WorkflowArtifactRef) => {
+    if (!projectId) return
+    const activeProjectPath = state.sidebarData.projectGroups
+      .flatMap((group) => [group, ...[]])
+      .find((group) => group.groupKey === projectId || group.chats.some((chat) => chat.chatId === state.activeChatId) || group.previewChats.some((chat) => chat.chatId === state.activeChatId))
+      ?.localPath
+    const localPath = artifact.path.startsWith("/")
+      ? artifact.path
+      : activeProjectPath
+        ? `${activeProjectPath}/${artifact.path}`
+        : ""
+    if (!localPath || localPath === `/${artifact.path}`) {
+      void dialog.alert({
+        title: "Artifact path unavailable",
+        description: `Cannot resolve ${artifact.path} to a local file yet.`,
+      })
+      return
+    }
+    void state.socket.command({
+      type: "system.openExternal",
+      localPath,
+      action: "open_editor",
+    }).catch((error) => {
+      void dialog.alert({
+        title: "Cannot open artifact",
+        description: error instanceof Error ? error.message : String(error),
+      })
+    })
+  }, [dialog, projectId, state.activeChatId, state.sidebarData.projectGroups, state.socket])
 
   const handleRegenerateArtifact = useCallback((artifact: WorkflowArtifactRef) => {
+    if (projectId) {
+      void state.socket.command({
+        type: "workflow.markArtifact",
+        projectId,
+        artifactId: artifact.id,
+        action: "invalidate",
+        reason: `User requested regeneration for ${artifact.path}.`,
+      })
+    }
     void sendWorkflowAgentRequest(`Regenerate the artifact: ${artifact.path}.`)
-  }, [sendWorkflowAgentRequest])
+  }, [projectId, sendWorkflowAgentRequest, state.socket])
 
   const handleInvalidateArtifact = useCallback((artifact: WorkflowArtifactRef) => {
+    if (projectId) {
+      void state.socket.command({
+        type: "workflow.markArtifact",
+        projectId,
+        artifactId: artifact.id,
+        action: "invalidate",
+        reason: `User invalidated ${artifact.path}.`,
+      })
+    }
     void sendWorkflowAgentRequest(`Invalidate the artifact: ${artifact.path}. Mark it as dirty or out-of-date, and check if any downstream artifacts need to be reviewed.`)
-  }, [sendWorkflowAgentRequest])
+  }, [projectId, sendWorkflowAgentRequest, state.socket])
 
   const handleAcceptArtifact = useCallback((artifact: WorkflowArtifactRef) => {
+    if (projectId) {
+      void state.socket.command({
+        type: "workflow.markArtifact",
+        projectId,
+        artifactId: artifact.id,
+        action: "accept_source_of_truth",
+        reason: `User accepted ${artifact.path} as source of truth.`,
+      })
+    }
     void sendWorkflowAgentRequest(`Accept the artifact: ${artifact.path} as the current source of truth. Mark it as reviewed and ok.`)
-  }, [sendWorkflowAgentRequest])
+  }, [projectId, sendWorkflowAgentRequest, state.socket])
 
   const handleRepairDownstream = useCallback((artifact: WorkflowArtifactRef, impacted: WorkflowArtifactRef[]) => {
+    if (projectId) {
+      for (const impactedArtifact of impacted) {
+        void state.socket.command({
+          type: "workflow.updateArtifactImpact",
+          projectId,
+          runId: workflowProjection?.id,
+          sourceArtifactId: artifact.id,
+          impactedArtifactId: impactedArtifact.id,
+          status: "needs_repair",
+          reason: `User requested repair because ${impactedArtifact.path} depends on ${artifact.path}.`,
+        })
+      }
+    }
     const list = impacted.map((art) => `- ${art.path}`).join("\n")
     void sendWorkflowAgentRequest([
       `Repair the downstream artifacts impacted by ${artifact.path}.`,
@@ -642,23 +731,27 @@ export function ChatPage() {
       "",
       "Re-evaluate and rebuild these artifacts to ensure correctness and alignment.",
     ].join("\n"))
-  }, [sendWorkflowAgentRequest])
+  }, [projectId, sendWorkflowAgentRequest, state.socket, workflowProjection?.id])
 
   const handlePublishWorkflow = useCallback(async (manifest: import("@kanna/shared/workflow-schema").WorkflowManifest) => {
     if (!projectId) return
     try {
-      await state.socket.command({
-        type: "project.writeFile",
+      const published = await state.socket.command<WorkflowDefinitionSummary>({
+        type: "workflow.publishManifest",
         projectId,
-        relativePath: "workflow-manifest.json",
-        content: JSON.stringify(manifest, null, 2),
+        manifest,
+        sourceMarkdown: JSON.stringify(manifest, null, 2),
       })
-      console.log("Published workflow manifest successfully.")
+      setWorkflowDefinitions((definitions) => {
+        const rest = definitions.filter((definition) => definition.id !== published.id)
+        return [...rest, published]
+      })
       setProposedManifest(null)
+      toggleRightPanel(projectId, "workflow")
     } catch (err) {
       console.error("Failed to publish workflow manifest:", err)
     }
-  }, [projectId, state.socket])
+  }, [projectId, state.socket, toggleRightPanel])
 
   const handleRejectWorkflow = useCallback(() => {
     console.log("Reject proposed manifest")
@@ -1284,6 +1377,7 @@ export function ChatPage() {
             onReviewDownstream={handleReviewDownstream}
             onRepairDownstream={handleRepairDownstream}
             onRerunArtifact={handleRerunArtifact}
+            onViewArtifact={handleViewArtifact}
             onRegenerateArtifact={handleRegenerateArtifact}
             onInvalidateArtifact={handleInvalidateArtifact}
             onAcceptArtifact={handleAcceptArtifact}

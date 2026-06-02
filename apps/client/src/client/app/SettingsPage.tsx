@@ -19,6 +19,15 @@ import {
   LogOut,
   Trash2,
   X,
+  CheckCircle2,
+  AlertCircle,
+  AlertTriangle,
+  RefreshCw,
+  ToggleLeft,
+  ToggleRight,
+  Plus,
+  Settings,
+  ArrowUpCircle,
 } from "lucide-react"
 import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
@@ -40,6 +49,7 @@ import {
   type SkillSearchSnapshot,
   type SkillUninstallResult,
   type UpdateSnapshot,
+  type WorkflowDefinitionSummary,
 } from "@kanna/shared/types"
 import { markdownComponents } from "../components/messages/shared"
 import { ChatPreferenceControls } from "../components/chat-ui/ChatPreferenceControls"
@@ -808,50 +818,575 @@ function StatusPill({ children, tone = "neutral" }: { children: ReactNode; tone?
   )
 }
 
-export function WorkflowSection() {
+function parseWorkflowScalar(value: string): unknown {
+  const trimmed = value.trim()
+  if (!trimmed) return ""
+  if (trimmed === "true") return true
+  if (trimmed === "false") return false
+  if (/^-?\d+(\.\d+)?$/.test(trimmed)) return Number(trimmed)
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1)
+  }
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    return trimmed.slice(1, -1).split(",").map((entry) => String(parseWorkflowScalar(entry.trim()))).filter(Boolean)
+  }
+  return trimmed
+}
+
+function parseSimpleWorkflowFrontmatter(frontmatter: string) {
+  const result: Record<string, any> = {}
+  let currentArrayKey: string | null = null
+  let currentArrayItem: Record<string, unknown> | null = null
+
+  for (const rawLine of frontmatter.split(/\r?\n/)) {
+    if (!rawLine.trim() || rawLine.trimStart().startsWith("#")) continue
+    const indent = rawLine.match(/^\s*/)?.[0].length ?? 0
+    const line = rawLine.trim()
+
+    if (indent === 0) {
+      const match = /^([A-Za-z0-9_-]+):(?:\s*(.*))?$/.exec(line)
+      if (!match) continue
+      const [, key, value = ""] = match
+      if (value.trim()) {
+        result[key] = parseWorkflowScalar(value)
+        currentArrayKey = null
+        currentArrayItem = null
+      } else {
+        result[key] = []
+        currentArrayKey = key
+        currentArrayItem = null
+      }
+      continue
+    }
+
+    if (!currentArrayKey) continue
+    if (!Array.isArray(result[currentArrayKey])) result[currentArrayKey] = []
+
+    if (indent >= 2 && line.startsWith("- ")) {
+      const itemText = line.slice(2).trim()
+      const item: Record<string, unknown> = {}
+      const pair = /^([A-Za-z0-9_-]+):(?:\s*(.*))?$/.exec(itemText)
+      if (pair) item[pair[1]] = parseWorkflowScalar(pair[2] ?? "")
+      else if (itemText) item.value = parseWorkflowScalar(itemText)
+      result[currentArrayKey].push(item)
+      currentArrayItem = item
+      continue
+    }
+
+    if (indent >= 4 && currentArrayItem) {
+      const pair = /^([A-Za-z0-9_-]+):(?:\s*(.*))?$/.exec(line)
+      if (pair) currentArrayItem[pair[1]] = parseWorkflowScalar(pair[2] ?? "")
+    }
+  }
+
+  return result
+}
+
+export function parseWorkflowImportText(text: string) {
+  const trimmed = text.trim()
+  const warnings: string[] = []
+  if (!trimmed) throw new Error("Workflow Markdown or manifest JSON is required.")
+
+  if (trimmed.startsWith("{")) {
+    return { manifest: JSON.parse(trimmed), warnings }
+  }
+
+  const frontmatterMatch = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n([\s\S]*))?$/.exec(trimmed)
+  if (!frontmatterMatch) {
+    throw new Error("Workflow Markdown must include YAML frontmatter delimited by --- markers, or be valid manifest JSON.")
+  }
+
+  const manifest = parseSimpleWorkflowFrontmatter(frontmatterMatch[1])
+  const body = frontmatterMatch[2] ?? ""
+  const artifacts = Array.isArray(manifest.artifacts) ? manifest.artifacts : []
+  const declaredPatterns = new Set(
+    artifacts
+      .map((artifact) => typeof artifact?.pattern === "string" ? artifact.pattern : undefined)
+      .filter(Boolean)
+  )
+  const referencedFiles = new Set(body.match(/[A-Z][A-Z0-9_/*-]*\.(?:md|json|csv)/g) ?? [])
+  for (const file of referencedFiles) {
+    const declared = [...declaredPatterns].some((pattern) => {
+      if (pattern === file) return true
+      const regex = new RegExp("^" + pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") + "$")
+      return regex.test(file)
+    })
+    if (!declared) warnings.push(`Body references ${file}, but it is not declared in frontmatter artifacts.`)
+  }
+
+  if (typeof manifest.name !== "string" || !manifest.name.trim()) throw new Error("Workflow frontmatter must declare name.")
+  if (typeof manifest.version !== "string" || !manifest.version.trim()) throw new Error("Workflow frontmatter must declare version.")
+  if (!Array.isArray(manifest.artifacts)) manifest.artifacts = []
+
+  return { manifest, warnings }
+}
+
+export function WorkflowSection({ state }: { state: KannaState }) {
+  const [definitions, setDefinitions] = useState<WorkflowDefinitionSummary[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [globalAutonomy, setGlobalAutonomy] = useState<string>(() => {
+    return localStorage.getItem("kanna:globalReviewAutonomy") || "manual_review"
+  })
+
+  const handleSetGlobalAutonomy = (value: string) => {
+    setGlobalAutonomy(value)
+    localStorage.setItem("kanna:globalReviewAutonomy", value)
+  }
+
+  const [isImportOpen, setIsImportOpen] = useState(false)
+  const [importSlug, setImportSlug] = useState("")
+  const [importName, setImportName] = useState("")
+  const [importDesc, setImportDesc] = useState("")
+  const [importManifestText, setImportManifestText] = useState(
+    [
+      "---",
+      "name: custom-workflow",
+      "version: 1.0.0",
+      "description: A custom user workflow definition",
+      "entrypoint: true",
+      "role: initial",
+      "inputs:",
+      "  - type: file",
+      "    path: LEARNER_PROFILE.md",
+      "outputs:",
+      "  - type: file",
+      "    path: CURRICULUM_FRAMEWORK.md",
+      "artifacts:",
+      "  - id: framework",
+      "    name: Framework",
+      "    pattern: CURRICULUM_FRAMEWORK.md",
+      "---",
+      "",
+      "Use LEARNER_PROFILE.md to create CURRICULUM_FRAMEWORK.md.",
+    ].join("\n")
+  )
+  const [importError, setImportError] = useState<string | null>(null)
+  const [importWarnings, setImportWarnings] = useState<string[]>([])
+  const [isImporting, setIsImporting] = useState(false)
+
+  const projectId = state.activeProjectId
+
+  // Find active project title
+  const activeProject = state.sidebarData.projectGroups.find(p => p.groupKey === projectId)
+  const projectTitle = activeProject?.title || "Active Project"
+
+  const loadDefinitions = () => {
+    state.socket.command<WorkflowDefinitionSummary[]>({
+      type: "workflow.listDefinitions",
+      projectId: projectId ?? undefined,
+    })
+      .then((defs) => {
+        setDefinitions(defs)
+        setIsLoading(false)
+      })
+      .catch((err) => {
+        console.error("Failed to load definitions:", err)
+        setIsLoading(false)
+      })
+  }
+
+  useEffect(() => {
+    loadDefinitions()
+    if (projectId) {
+      const unsubscribe = state.socket.subscribe<any>(
+        { type: "project-workflow", projectId },
+        () => {
+          loadDefinitions()
+        }
+      )
+      return unsubscribe
+    }
+  }, [projectId, state.socket])
+
+  const handleToggleRegister = async (def: WorkflowDefinitionSummary) => {
+    if (!projectId) return
+    try {
+      if (def.isRegistered) {
+        await state.socket.command({
+          type: "project.unregisterWorkflow",
+          projectId,
+          workflowDefinitionId: def.id,
+        })
+      } else {
+        await state.socket.command({
+          type: "project.registerWorkflow",
+          projectId,
+          workflowDefinitionId: def.id,
+          versionId: def.currentVersionId,
+          isDefaultEntrypoint: false,
+        })
+      }
+      loadDefinitions()
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  const handleToggleEnabled = async (def: WorkflowDefinitionSummary) => {
+    if (!projectId) return
+    try {
+      await state.socket.command({
+        type: "project.updateWorkflowRegistration",
+        projectId,
+        workflowDefinitionId: def.id,
+        patch: { enabled: !def.isEnabled },
+      })
+      loadDefinitions()
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  const handleSetDefault = async (def: WorkflowDefinitionSummary) => {
+    if (!projectId) return
+    try {
+      await state.socket.command({
+        type: "project.updateWorkflowRegistration",
+        projectId,
+        workflowDefinitionId: def.id,
+        patch: { isDefaultEntrypoint: true },
+      })
+      loadDefinitions()
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  const handlePinVersion = async (def: WorkflowDefinitionSummary, value: string) => {
+    if (!projectId) return
+    try {
+      const versionId = value === "latest" ? null : value
+      await state.socket.command({
+        type: "project.updateWorkflowRegistration",
+        projectId,
+        workflowDefinitionId: def.id,
+        patch: { versionId: versionId ?? undefined },
+      })
+      loadDefinitions()
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  const handleSetAutonomyOverride = async (def: WorkflowDefinitionSummary, value: string) => {
+    if (!projectId) return
+    try {
+      const currentSettings = def.settings || {}
+      const updatedSettings = {
+        ...currentSettings,
+        autonomyLevel: value === "default" ? undefined : value
+      }
+      if (updatedSettings.autonomyLevel === undefined) {
+        delete updatedSettings.autonomyLevel
+      }
+      await state.socket.command({
+        type: "project.updateWorkflowRegistration",
+        projectId,
+        workflowDefinitionId: def.id,
+        patch: { settings: updatedSettings },
+      })
+      loadDefinitions()
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  const handleImport = async () => {
+    setIsImporting(true)
+    setImportError(null)
+    setImportWarnings([])
+    try {
+      const parsed = parseWorkflowImportText(importManifestText)
+      setImportWarnings(parsed.warnings)
+
+      const manifestPayload = {
+        ...parsed.manifest,
+        slug: importSlug || parsed.manifest.slug || parsed.manifest.name || "custom-slug",
+        name: importName || parsed.manifest.name || "Custom Workflow",
+        description: importDesc || parsed.manifest.description || "",
+      }
+
+      await state.socket.command({
+        type: "workflow.publishManifest",
+        projectId: projectId ?? undefined,
+        manifest: manifestPayload,
+        sourceMarkdown: importManifestText,
+      })
+
+      setIsImportOpen(false)
+      setImportSlug("")
+      setImportName("")
+      setImportDesc("")
+      loadDefinitions()
+    } catch (err: any) {
+      setImportError(err.message || String(err))
+    } finally {
+      setIsImporting(false)
+    }
+  }
+
+  const getReadinessIcon = (readiness?: string) => {
+    switch (readiness) {
+      case "ready":
+        return <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+      case "blocked":
+        return <AlertCircle className="h-4 w-4 text-red-500" />
+      case "running":
+        return <RefreshCw className="h-4 w-4 text-sky-500 animate-spin" />
+      case "needs_review":
+        return <AlertTriangle className="h-4 w-4 text-amber-500" />
+      case "can_repair":
+        return <Settings className="h-4 w-4 text-indigo-400 animate-pulse" />
+      default:
+        return <Info className="h-4 w-4 text-muted-foreground" />
+    }
+  }
+
   return (
-    <div className="border-b border-border">
-      <SettingsRow
-        title="Runtime"
-        description="Workflow state is projected from an append-only event store and shown in the right sidebar."
-        bordered={false}
-      >
-        <div className="flex flex-wrap justify-end gap-2">
-          <StatusPill tone="good">Enabled</StatusPill>
-          <CodePill>WorkflowRuntimeStore</CodePill>
+    <div className="flex flex-col gap-6 pb-10">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-medium text-foreground">Workflow Registry</h3>
+          <p className="text-sm text-muted-foreground">
+            Manage global workflow definitions and register them to your active project with specific version pinning and entrypoints.
+          </p>
         </div>
-      </SettingsRow>
+        <Button onClick={() => setIsImportOpen(true)} size="sm">
+          <Plus className="mr-2 h-4 w-4" /> Import Workflow
+        </Button>
+      </div>
 
-      <SettingsRow
-        title="Event Store"
-        description="Primary storage is Postgres/Supabase rows with JSONB payloads. JSONL is treated as import/export/debug format, not the production source of truth."
-      >
-        <div className="flex flex-wrap justify-end gap-2">
-          <StatusPill tone="good">Supabase-ready</StatusPill>
-          <CodePill>workflow_events</CodePill>
+      {projectId ? (
+        <div className="rounded-lg border border-border bg-card/10 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center gap-2 text-sm text-foreground">
+            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+            Active project scope: <strong className="text-foreground">{projectTitle}</strong>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground font-medium">Global Review Autonomy:</span>
+            <select
+              value={globalAutonomy}
+              onChange={(e) => handleSetGlobalAutonomy(e.target.value)}
+              className="text-xs bg-background border border-border rounded px-2.5 py-1 focus:ring-primary focus:border-primary text-foreground"
+            >
+              <option value="manual_review">Manual Review (Default)</option>
+              <option value="ai_recommend_user_approve">AI Recommend, User Approve</option>
+              <option value="ai_auto_approve_low_risk">AI Auto-Approve Low Risk</option>
+              <option value="ai_auto_approve_all">AI Auto-Approve All</option>
+            </select>
+          </div>
         </div>
-      </SettingsRow>
+      ) : (
+        <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-4 text-sm text-yellow-600 dark:text-yellow-400 flex items-start gap-2">
+          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+          <div>
+            Workflow import is available globally in Settings. Select a project from the sidebar to register workflows, pin versions, and view readiness states.
+          </div>
+        </div>
+      )}
 
-      <SettingsRow
-        title="Artifacts"
-        description="Artifacts are classified by kind, versioned with checksum metadata, and linked to downstream review estimates."
-      >
-        <div className="flex flex-wrap justify-end gap-2">
-          <CodePill>artifacts</CodePill>
-          <CodePill>artifact_versions</CodePill>
-          <CodePill>artifact_impacts</CodePill>
+      {isLoading ? (
+        <div className="flex flex-col items-center justify-center py-10 gap-2">
+          <Loader2 className="h-8 w-8 text-primary animate-spin" />
+          <span className="text-sm text-muted-foreground">Loading workflow definitions...</span>
         </div>
-      </SettingsRow>
+      ) : (
+        <div className="border border-border rounded-lg overflow-hidden bg-card/20">
+          <div className="grid grid-cols-1 divide-y divide-border">
+            {definitions.length === 0 ? (
+              <div className="p-8 text-center text-sm text-muted-foreground">
+                No workflows found. Register or import a workflow definition to get started.
+              </div>
+            ) : (
+              definitions.map((def) => {
+                const availableVersions = [
+                  { id: "latest", label: `Latest (${def.currentVersion || "unreleased"})` },
+                  ...(def.currentVersionId ? [{ id: def.currentVersionId, label: `Version ${def.currentVersion || "current"}` }] : []),
+                  ...(def.pinnedVersionId && def.pinnedVersionId !== def.currentVersionId ? [{ id: def.pinnedVersionId, label: `Pinned (${def.pinnedVersion || "current"})` }] : [])
+                ]
 
-      <SettingsRow
-        title="Workflow Picker"
-        description="Open a project chat and click the workflow icon in the top-right toolbar. Workflow progress appears in the right sidebar, while agent activity remains in chat."
-        alignStart
-      >
-        <div className="max-w-[420px] rounded-lg border border-border bg-card/30 p-3 text-xs text-muted-foreground">
-          Current MVP seeds the curriculum workflow from imported workflow markdown. A generic workflow importer can become the next Settings action.
+                return (
+                  <div key={def.id} className="p-4 flex flex-col gap-4 md:flex-row md:items-center md:justify-between hover:bg-card/30 transition-colors">
+                    <div className="flex flex-col gap-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-foreground truncate max-w-[200px]" title={def.name}>{def.name}</span>
+                        <code className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-mono truncate max-w-[150px]">{def.slug}</code>
+                        {def.isDefaultEntrypoint && (
+                          <span className="text-[10px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                            Default Entrypoint
+                          </span>
+                        )}
+                        {def.isRegistered && def.currentVersionId && def.pinnedVersionId && def.pinnedVersionId !== def.currentVersionId && (
+                          <span className="text-[10px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full border border-amber-500/20 flex items-center gap-1">
+                            <ArrowUpCircle className="h-3.5 w-3.5 text-amber-500" /> Upgrade Available
+                          </span>
+                        )}
+                        {def.readiness && (
+                          <span className={cn(
+                            "text-[10px] font-medium px-2 py-0.5 rounded-full border flex items-center gap-1",
+                            def.readiness === "ready" && "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+                            def.readiness === "blocked" && "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20",
+                            def.readiness === "running" && "bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20",
+                            def.readiness === "needs_review" && "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
+                            def.readiness === "can_repair" && "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20"
+                          )}>
+                            {getReadinessIcon(def.readiness)}
+                            {def.readiness.toUpperCase().replace("_", " ")}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground line-clamp-2 max-w-[500px]">{def.description || "No description provided."}</p>
+                    </div>
+
+                    {projectId && (
+                      <div className="flex flex-wrap items-center gap-4">
+                        {/* Register Checkbox */}
+                        <label className="flex items-center gap-2 text-xs font-medium text-foreground cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={def.isRegistered}
+                            onChange={() => handleToggleRegister(def)}
+                            className="rounded border-border text-primary focus:ring-primary h-4 w-4 bg-background"
+                          />
+                          Registered
+                        </label>
+
+                        {def.isRegistered && (
+                          <>
+                            {/* Enable/Disable Toggle */}
+                            <button
+                              onClick={() => handleToggleEnabled(def)}
+                              className="text-muted-foreground hover:text-foreground transition-colors"
+                              title={def.isEnabled ? "Disable workflow" : "Enable workflow"}
+                            >
+                              {def.isEnabled ? (
+                                <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                                  <ToggleRight className="h-5 w-5" /> Enabled
+                                </span>
+                              ) : (
+                                <span className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                                  <ToggleLeft className="h-5 w-5" /> Disabled
+                                </span>
+                              )}
+                            </button>
+
+                            {/* Default Entrypoint Button */}
+                            {!def.isDefaultEntrypoint && (
+                              <Button
+                                variant="outline"
+                                className="text-[11px] h-7 px-2"
+                                onClick={() => handleSetDefault(def)}
+                              >
+                                Set Default
+                              </Button>
+                            )}
+
+                            {/* Version Lock Select */}
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs text-muted-foreground">Pin:</span>
+                              <select
+                                value={def.pinnedVersionId || "latest"}
+                                onChange={(e) => handlePinVersion(def, e.target.value)}
+                                className="text-xs bg-background border border-border rounded px-2 py-1 focus:ring-primary focus:border-primary max-w-[130px] truncate"
+                              >
+                                {availableVersions.map((v) => (
+                                  <option key={v.id} value={v.id}>{v.label}</option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {/* Autonomy Override Select */}
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs text-muted-foreground">Autonomy:</span>
+                              <select
+                                value={def.settings?.autonomyLevel || "default"}
+                                onChange={(e) => handleSetAutonomyOverride(def, e.target.value)}
+                                className="text-xs bg-background border border-border rounded px-2 py-1 focus:ring-primary focus:border-primary max-w-[150px] truncate text-foreground"
+                              >
+                                <option value="default">Use Global</option>
+                                <option value="manual_review">Manual Review</option>
+                                <option value="ai_recommend_user_approve">AI Recommend</option>
+                                <option value="ai_auto_approve_low_risk">Auto Low-Risk</option>
+                                <option value="ai_auto_approve_all">Auto All</option>
+                              </select>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })
+            )}
+          </div>
         </div>
-      </SettingsRow>
+      )}
+
+      {/* Import Modal */}
+      <Dialog open={isImportOpen} onOpenChange={setIsImportOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogTitle>Import Workflow Definition</DialogTitle>
+          <DialogBody className="space-y-4 pt-4">
+            {importError && (
+              <div className="p-3 text-xs bg-red-500/10 text-red-600 dark:text-red-400 rounded border border-red-500/20">
+                {importError}
+              </div>
+            )}
+            {importWarnings.length > 0 && (
+              <div className="space-y-1 rounded border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400">
+                {importWarnings.map((warning) => (
+                  <div key={warning}>{warning}</div>
+                ))}
+              </div>
+            )}
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-foreground">Slug</label>
+                <Input
+                  placeholder="e.g. create-lesson"
+                  value={importSlug}
+                  onChange={(e) => setImportSlug(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-foreground">Name</label>
+                <Input
+                  placeholder="e.g. Create Lesson"
+                  value={importName}
+                  onChange={(e) => setImportName(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-foreground">Description</label>
+              <Input
+                placeholder="Brief description of the workflow"
+                value={importDesc}
+                onChange={(e) => setImportDesc(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-foreground">Workflow Markdown or Manifest JSON</label>
+              <textarea
+                value={importManifestText}
+                onChange={(e) => setImportManifestText(e.target.value)}
+                className="w-full h-48 font-mono text-xs p-3 rounded-lg border border-border bg-background focus:ring-1 focus:ring-primary focus:outline-none"
+              />
+            </div>
+          </DialogBody>
+          <DialogFooter className="mt-6 flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setIsImportOpen(false)} disabled={isImporting}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={handleImport} disabled={isImporting}>
+              {isImporting ? "Importing..." : "Import"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -1957,7 +2492,7 @@ export function SettingsPage() {
                 ) : selectedPage === "skills" ? (
                   <SkillsSection state={state} />
                 ) : selectedPage === "workflow" ? (
-                  <WorkflowSection />
+                  <WorkflowSection state={state} />
                 ) : selectedPage === "mcp" ? (
                   <McpSection />
                 ) : (

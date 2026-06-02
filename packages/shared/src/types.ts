@@ -1105,6 +1105,9 @@ export interface WorkflowArtifactRef {
   version?: string
   checksum?: string
   changed?: boolean
+  workflowStatus?: "expected" | "pending" | "done" | "invalidated" | "source_of_truth" | "needs_review" | "needs_repair"
+  expected?: boolean
+  updatedAt?: string
   producedByNodeId?: string
   dependsOn?: string[]
 }
@@ -1128,6 +1131,16 @@ export interface WorkflowDefinitionSummary {
   currentVersionId?: string
   currentVersion?: string
   workflowType: string
+  isRegistered?: boolean
+  pinnedVersionId?: string
+  pinnedVersion?: string
+  isEnabled?: boolean
+  isDefaultEntrypoint?: boolean
+  readiness?: "ready" | "blocked" | "running" | "needs_review" | "can_repair"
+  unsatisfiedInputs?: Array<{ path: string; type: string; status?: string }>
+  staleInputs?: Array<{ path: string; currentChecksum: string; recordedChecksum: string }>
+  settings?: Record<string, any>
+  manifest?: any
 }
 
 export interface WorkflowNode {
@@ -1150,6 +1163,32 @@ export interface WorkflowNode {
   children?: WorkflowNode[]
 }
 
+export interface WorkflowPack {
+  id: string
+  slug: string
+  name: string
+  description?: string
+  workflowDefinitions?: Array<{
+    workflowDefinitionId: string
+    versionId?: string
+    isDefaultEntrypoint?: boolean
+  }>
+}
+
+export type FlowEdgeProvenance = 'explicit_pack' | 'explicit_user' | 'artifact_io_inferred' | 'ai_suggested';
+export type FlowEdgeStatus = 'approved' | 'pending_approval' | 'rejected';
+
+export interface ProjectFlowEdge {
+  id: string
+  projectId: string
+  sourceWorkflowDefinitionId: string
+  targetWorkflowDefinitionId: string
+  provenance: FlowEdgeProvenance
+  status: FlowEdgeStatus
+  conflicted?: boolean
+  conflictReason?: string
+}
+
 export interface WorkflowRunProjection {
   id: string
   projectId?: string
@@ -1164,4 +1203,10 @@ export interface WorkflowRunProjection {
   root: WorkflowNode
   latestArtifacts?: WorkflowArtifactRef[]
   impacts?: WorkflowArtifactImpact[]
+  flowGraph?: {
+    nodes: WorkflowDefinitionSummary[]
+    edges: ProjectFlowEdge[]
+    packs?: WorkflowPack[]
+  }
 }
+

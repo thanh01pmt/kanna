@@ -3,6 +3,7 @@ import {
   WorkflowManifest,
   ArtifactDefinition,
   ArtifactDependencyRule,
+  WorkflowNodeDefinition,
 } from "@kanna/shared/workflow-schema"
 
 /**
@@ -18,6 +19,7 @@ export function extractWorkflowFromMarkdown(markdownContent: string): WorkflowMa
   const description = data.description || ""
 
   const artifacts: ArtifactDefinition[] = []
+  const subWorkflowNodes: WorkflowNodeDefinition[] = []
 
   // Helper to add or update artifact definitions
   const addArtifact = (id: string, name: string, pattern: string) => {
@@ -111,6 +113,17 @@ export function extractWorkflowFromMarkdown(markdownContent: string): WorkflowMa
         addArtifact("lesson", "LESSON", "LESSON_*.md")
         addDependency("lesson", "UNIT_*.md", "derives_from")
       }
+
+      if (!subWorkflowNodes.some((node) => node.id === subWorkflow)) {
+        subWorkflowNodes.push({
+          id: subWorkflow,
+          name: subWorkflow,
+          nodeType: "workflow",
+          source: "imported",
+          status: "horizon",
+          produces: [subArtifactId],
+        })
+      }
     }
 
     // Explicitly scan scaffold flags in shell commands
@@ -135,10 +148,29 @@ export function extractWorkflowFromMarkdown(markdownContent: string): WorkflowMa
     }
   }
 
+  const artifactNodes: WorkflowNodeDefinition[] = artifacts.map((artifact) => ({
+    id: `artifact_${artifact.id}`,
+    name: `Produce ${artifact.name}`,
+    nodeType: "artifact_check",
+    source: "imported",
+    status: "known",
+    produces: [artifact.id],
+    consumes: artifact.dependencies?.map((dependency) => dependency.sourcePattern),
+  }))
+  const rootNode: WorkflowNodeDefinition = {
+    id: `wf_${String(name).replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "workflow"}`,
+    name,
+    nodeType: "workflow",
+    source: "imported",
+    status: "running",
+    children: [...artifactNodes, ...subWorkflowNodes],
+  }
+
   return {
     name,
     version,
     description,
     artifacts,
+    nodes: [rootNode],
   }
 }

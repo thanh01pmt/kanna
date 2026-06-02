@@ -1334,12 +1334,65 @@ export function createWsRouter({
           return
         }
         case "workflow.listDefinitions": {
+          if (command.projectId) {
+            const project = store.getProject(command.projectId)
+            if (!project) {
+              throw new Error("Project not found")
+            }
+          }
+          const result = await resolvedWorkflowStore.listDefinitions?.(command.projectId) ?? []
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          return
+        }
+        case "project.registerWorkflow": {
           const project = store.getProject(command.projectId)
           if (!project) {
             throw new Error("Project not found")
           }
-          const result = await resolvedWorkflowStore.listDefinitions?.(command.projectId) ?? []
-          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          if (!resolvedWorkflowStore.registerWorkflow) {
+            throw new Error("Workflow runtime store does not support registering workflows.")
+          }
+          await resolvedWorkflowStore.registerWorkflow({
+            projectId: command.projectId,
+            workflowDefinitionId: command.workflowDefinitionId,
+            versionId: command.versionId,
+            isDefaultEntrypoint: command.isDefaultEntrypoint,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { ok: true } })
+          await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
+          return
+        }
+        case "project.unregisterWorkflow": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          if (!resolvedWorkflowStore.unregisterWorkflow) {
+            throw new Error("Workflow runtime store does not support unregistering workflows.")
+          }
+          await resolvedWorkflowStore.unregisterWorkflow({
+            projectId: command.projectId,
+            workflowDefinitionId: command.workflowDefinitionId,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { ok: true } })
+          await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
+          return
+        }
+        case "project.updateWorkflowRegistration": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          if (!resolvedWorkflowStore.updateWorkflowRegistration) {
+            throw new Error("Workflow runtime store does not support updating workflow registrations.")
+          }
+          await resolvedWorkflowStore.updateWorkflowRegistration({
+            projectId: command.projectId,
+            workflowDefinitionId: command.workflowDefinitionId,
+            patch: command.patch,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { ok: true } })
+          await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
           return
         }
         case "workflow.startRun": {
@@ -1355,6 +1408,67 @@ export function createWsRouter({
             workflowDefinitionId: command.workflowDefinitionId,
             chatId: command.chatId,
             input: command.input,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
+          return
+        }
+        case "workflow.publishManifest": {
+          if (command.projectId) {
+            const project = store.getProject(command.projectId)
+            if (!project) {
+              throw new Error("Project not found")
+            }
+          }
+          if (!resolvedWorkflowStore.publishManifest) {
+            throw new Error("Workflow runtime store does not support publishing manifests.")
+          }
+          const result = await resolvedWorkflowStore.publishManifest({
+            projectId: command.projectId,
+            manifest: command.manifest as any,
+            sourceMarkdown: command.sourceMarkdown,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          if (command.projectId) {
+            await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
+          } else {
+            await broadcastSnapshots()
+          }
+          return
+        }
+        case "workflow.updateArtifactImpact": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          if (!resolvedWorkflowStore.updateArtifactImpact) {
+            throw new Error("Workflow runtime store does not support artifact impact updates.")
+          }
+          const result = await resolvedWorkflowStore.updateArtifactImpact({
+            projectId: command.projectId,
+            runId: command.runId,
+            sourceArtifactId: command.sourceArtifactId,
+            impactedArtifactId: command.impactedArtifactId,
+            status: command.status,
+            reason: command.reason,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
+          return
+        }
+        case "workflow.markArtifact": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          if (!resolvedWorkflowStore.markArtifact) {
+            throw new Error("Workflow runtime store does not support artifact marking.")
+          }
+          const result = await resolvedWorkflowStore.markArtifact({
+            projectId: command.projectId,
+            artifactId: command.artifactId,
+            action: command.action,
+            reason: command.reason,
           })
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })

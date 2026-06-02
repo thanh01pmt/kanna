@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod"
 import { createDefaultWorkflowRuntimeStore, type WorkflowRuntimeStore } from "@kanna/server/workflow-runtime-store"
+import { WorkflowManifestSchema } from "@kanna/shared/workflow-schema"
 
 const server = new McpServer({
   name: "kanna-workflow",
@@ -68,6 +69,26 @@ server.registerTool(
     const startRun = requireCapability("startRun")
     const projection = await startRun.call(store, { projectId, workflowDefinitionId, chatId, input })
     return result({ projection })
+  },
+)
+
+server.registerTool(
+  "workflow_publish_manifest",
+  {
+    title: "Publish Workflow Manifest",
+    description: "Publish an imported workflow manifest into Kanna's workflow definition/version store.",
+    inputSchema: {
+      projectId: ProjectIdSchema,
+      manifest: WorkflowManifestSchema,
+      sourceMarkdown: z.string().optional(),
+    },
+    outputSchema: { definition: z.unknown() },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  async ({ projectId, manifest, sourceMarkdown }) => {
+    const publishManifest = requireCapability("publishManifest")
+    const definition = await publishManifest.call(store, { projectId, manifest, sourceMarkdown })
+    return result({ definition })
   },
 )
 
@@ -158,6 +179,50 @@ server.registerTool(
     const listArtifacts = requireCapability("listArtifacts")
     const artifacts = await listArtifacts.call(store, { projectId, kind, query, limit })
     return result({ artifacts })
+  },
+)
+
+server.registerTool(
+  "artifact_mark",
+  {
+    title: "Mark Artifact",
+    description: "Mark an artifact as invalidated or accepted as the current source of truth.",
+    inputSchema: {
+      projectId: ProjectIdSchema,
+      artifactId: z.string().min(1),
+      action: z.enum(["invalidate", "accept_source_of_truth"]),
+      reason: z.string().optional(),
+    },
+    outputSchema: { artifacts: z.array(z.unknown()) },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  async ({ projectId, artifactId, action, reason }) => {
+    const markArtifact = requireCapability("markArtifact")
+    const artifacts = await markArtifact.call(store, { projectId, artifactId, action, reason })
+    return result({ artifacts })
+  },
+)
+
+server.registerTool(
+  "workflow_update_artifact_impact",
+  {
+    title: "Update Artifact Impact",
+    description: "Record review or repair status for a downstream artifact impact and append an audit event.",
+    inputSchema: {
+      projectId: ProjectIdSchema,
+      runId: RunIdSchema.optional(),
+      sourceArtifactId: z.string().min(1),
+      impactedArtifactId: z.string().min(1).optional(),
+      status: z.enum(["needs_review", "reviewed_ok", "needs_repair", "repaired", "not_impacted", "maybe_impacted"]),
+      reason: z.string().optional(),
+    },
+    outputSchema: { impacts: z.array(z.unknown()) },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  async ({ projectId, runId, sourceArtifactId, impactedArtifactId, status, reason }) => {
+    const updateArtifactImpact = requireCapability("updateArtifactImpact")
+    const impacts = await updateArtifactImpact.call(store, { projectId, runId, sourceArtifactId, impactedArtifactId, status, reason })
+    return result({ impacts })
   },
 )
 

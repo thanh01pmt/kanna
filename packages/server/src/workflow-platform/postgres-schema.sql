@@ -8,6 +8,8 @@ create table if not exists workflow_definitions (
   name text not null,
   description text,
   owner_project_id text,
+  owner_user_id text,
+  visibility text not null default 'private_user' check (visibility in ('private_user', 'official_global')),
   current_published_version_id uuid,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -17,7 +19,7 @@ create table if not exists workflow_versions (
   id uuid primary key,
   workflow_definition_id uuid not null references workflow_definitions(id) on delete cascade,
   version text not null,
-  status text not null check (status in ('draft', 'published', 'deprecated')),
+  status text not null check (status in ('draft', 'published', 'deprecated', 'archived')),
   source_markdown text,
   manifest_jsonb jsonb not null default '{}'::jsonb,
   created_by text,
@@ -156,3 +158,53 @@ create index if not exists artifact_impacts_run_status_idx
 
 create index if not exists artifacts_kind_idx
   on artifacts (kind);
+
+create table if not exists workflow_packs (
+  id uuid primary key default gen_random_uuid(),
+  slug text not null unique,
+  name text not null,
+  description text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists project_workflows (
+  id uuid primary key default gen_random_uuid(),
+  project_id text not null,
+  workflow_definition_id uuid not null references workflow_definitions(id) on delete cascade,
+  workflow_version_id uuid references workflow_versions(id) on delete set null,
+  pack_id uuid references workflow_packs(id) on delete set null,
+  enabled boolean not null default true,
+  is_default_entrypoint boolean not null default false,
+  alias text,
+  order_index integer not null default 0,
+  settings_jsonb jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (project_id, workflow_definition_id)
+);
+
+create unique index if not exists project_workflows_single_default_entrypoint_idx 
+on project_workflows (project_id) 
+where (enabled = true and is_default_entrypoint = true);
+
+create table if not exists workflow_pack_definitions (
+  workflow_pack_id uuid not null references workflow_packs(id) on delete cascade,
+  workflow_definition_id uuid not null references workflow_definitions(id) on delete cascade,
+  version_id uuid references workflow_versions(id) on delete set null,
+  is_default_entrypoint boolean not null default false,
+  primary key (workflow_pack_id, workflow_definition_id)
+);
+
+create table if not exists project_flow_edges (
+  id uuid primary key default gen_random_uuid(),
+  project_id text not null,
+  source_workflow_definition_id uuid not null references workflow_definitions(id) on delete cascade,
+  target_workflow_definition_id uuid not null references workflow_definitions(id) on delete cascade,
+  provenance text not null check (provenance in ('explicit_pack', 'explicit_user', 'artifact_io_inferred', 'ai_suggested')),
+  status text not null check (status in ('approved', 'pending_approval', 'rejected')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (project_id, source_workflow_definition_id, target_workflow_definition_id, provenance)
+);
+

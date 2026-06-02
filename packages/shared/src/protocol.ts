@@ -94,8 +94,14 @@ export type ClientCommand =
   | { type: "browser.killLocalHttpServer"; port: number }
   | { type: "project.readQuickActions"; projectId: string }
   | { type: "project.writeQuickActions"; projectId: string; quickActions: ProjectQuickAction[] }
-  | { type: "workflow.listDefinitions"; projectId: string }
+  | { type: "workflow.listDefinitions"; projectId?: string }
+  | { type: "project.registerWorkflow"; projectId: string; workflowDefinitionId: string; versionId?: string; isDefaultEntrypoint?: boolean }
+  | { type: "project.unregisterWorkflow"; projectId: string; workflowDefinitionId: string }
+  | { type: "project.updateWorkflowRegistration"; projectId: string; workflowDefinitionId: string; patch: { versionId?: string; enabled?: boolean; isDefaultEntrypoint?: boolean; settings?: Record<string, unknown> } }
   | { type: "workflow.startRun"; projectId: string; workflowDefinitionId: string; chatId?: string; input?: Record<string, unknown> }
+  | { type: "workflow.publishManifest"; projectId?: string; manifest: Record<string, unknown>; sourceMarkdown?: string }
+  | { type: "workflow.updateArtifactImpact"; projectId: string; runId?: string; sourceArtifactId: string; impactedArtifactId?: string; status: "needs_review" | "reviewed_ok" | "needs_repair" | "repaired" | "not_impacted" | "maybe_impacted"; reason?: string }
+  | { type: "workflow.markArtifact"; projectId: string; artifactId: string; action: "invalidate" | "accept_source_of_truth"; reason?: string }
   | { type: "update.check"; force?: boolean }
   | { type: "update.install" }
   | { type: "settings.readKeybindings" }

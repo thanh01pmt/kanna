@@ -5,6 +5,7 @@ import {
   ChevronRight,
   CircleDashed,
   Clock3,
+  Eye,
   FileText,
   GitBranch,
   History,
@@ -15,6 +16,8 @@ import {
   Sparkles,
   Wrench,
   XCircle,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react"
 import type { WorkflowArtifactImpact, WorkflowArtifactImpactStatus, WorkflowArtifactRef, WorkflowDefinitionSummary, WorkflowNode, WorkflowNodeStatus, WorkflowTrackerActions, WorkflowRunProjection } from "../types"
 import { cn } from "../logic/cn"
@@ -109,6 +112,7 @@ function ArtifactChip({
         "flex shrink-0 items-center gap-1 overflow-hidden transition-all duration-200",
         isExpanded ? "ml-1 max-w-[400px] opacity-100" : "max-w-0 opacity-0 group-hover:ml-1 group-hover:max-w-[400px] group-hover:opacity-100"
       )}>
+        <button type="button" className="rounded-md border border-border bg-muted/40 px-1.5 py-0.5 text-[10px] hover:bg-muted hover:text-foreground" onClick={(e) => { e.stopPropagation(); actions?.onViewArtifact?.(artifact) }}>View</button>
         <button type="button" className="rounded-md border border-border bg-muted/40 px-1.5 py-0.5 text-[10px] hover:bg-muted hover:text-foreground" onClick={(e) => { e.stopPropagation(); actions?.onRerunArtifact?.(artifact) }}>Rerun</button>
         <button type="button" className="rounded-md border border-border bg-muted/40 px-1.5 py-0.5 text-[10px] hover:bg-muted hover:text-foreground" onClick={(e) => { e.stopPropagation(); actions?.onReviewDownstream?.(artifact) }}>Review</button>
         <button type="button" className="rounded-md border border-border bg-muted/40 px-1.5 py-0.5 text-[10px] hover:bg-muted hover:text-foreground" onClick={(e) => { e.stopPropagation(); actions?.onRepairDownstream?.(artifact, []) }}>Repair</button>
@@ -117,6 +121,87 @@ function ArtifactChip({
         <button type="button" className="rounded-md border border-border bg-muted/40 px-1.5 py-0.5 text-[10px] hover:bg-muted hover:text-foreground" onClick={(e) => { e.stopPropagation(); actions?.onAcceptArtifact?.(artifact) }}>Accept</button>
       </div>
     </span>
+  )
+}
+
+function artifactStatusLabel(artifact: WorkflowArtifactRef) {
+  if (artifact.workflowStatus === "source_of_truth") return "source"
+  if (artifact.workflowStatus === "invalidated") return "dirty"
+  if (artifact.workflowStatus === "needs_repair") return "repair"
+  if (artifact.workflowStatus === "needs_review") return "review"
+  if (artifact.workflowStatus === "pending" || artifact.workflowStatus === "expected") return "pending"
+  if (artifact.changed) return "dirty"
+  return "done"
+}
+
+function artifactStatusClass(artifact: WorkflowArtifactRef) {
+  const status = artifactStatusLabel(artifact)
+  if (status === "done" || status === "source") return "border-[hsl(var(--chart-2)/0.35)] bg-[hsl(var(--chart-2)/0.12)] text-foreground"
+  if (status === "dirty" || status === "repair" || status === "review") return "border-[hsl(var(--chart-1)/0.35)] bg-[hsl(var(--chart-1)/0.12)] text-foreground"
+  return "border-border bg-muted/50 text-muted-foreground"
+}
+
+function ArtifactStatusGlyph({ artifact }: { artifact: WorkflowArtifactRef }) {
+  const status = artifactStatusLabel(artifact)
+  if (status === "done" || status === "source") return <Check className="h-3.5 w-3.5 text-[hsl(var(--chart-2))]" />
+  if (status === "dirty" || status === "repair" || status === "review") return <AlertTriangle className="h-3.5 w-3.5 text-[hsl(var(--chart-1))]" />
+  return <CircleDashed className="h-3.5 w-3.5 text-muted-foreground" />
+}
+
+function WorkflowArtifactsTable({
+  artifacts,
+  densityMode = "normal",
+  actions,
+  onRepairArtifact,
+}: {
+  artifacts: WorkflowArtifactRef[]
+  densityMode?: "compact" | "normal" | "expanded"
+  actions: WorkflowTrackerActions
+  onRepairArtifact: (artifact: WorkflowArtifactRef) => void
+}) {
+  if (artifacts.length === 0) {
+    return <div className="rounded-2xl border border-border bg-card p-3 text-sm text-muted-foreground">No workflow artifacts have been declared or observed yet.</div>
+  }
+
+  const isCompact = densityMode === "compact"
+  const sorted = [...artifacts].sort((left, right) => {
+    const leftExpected = left.expected ? 0 : 1
+    const rightExpected = right.expected ? 0 : 1
+    if (leftExpected !== rightExpected) return leftExpected - rightExpected
+    return left.path.localeCompare(right.path)
+  })
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-border bg-card">
+      <div className="grid grid-cols-[82px_minmax(0,1fr)_86px_228px] gap-2 border-b border-border bg-muted/25 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+        <span>Status</span>
+        <span>Artifact</span>
+        <span>Kind</span>
+        <span className="text-right">Actions</span>
+      </div>
+      {sorted.map((artifact) => (
+        <div key={artifact.id} className="grid grid-cols-[82px_minmax(0,1fr)_86px_228px] items-center gap-2 border-b border-border/70 px-3 py-2 last:border-b-0">
+          <div className="flex items-center gap-1.5">
+            <ArtifactStatusGlyph artifact={artifact} />
+            <span className={cn("rounded-md border px-1.5 py-0.5 text-[10px] font-mono", artifactStatusClass(artifact))}>{artifactStatusLabel(artifact)}</span>
+          </div>
+          <div className="min-w-0">
+            <div className="truncate font-mono text-xs text-foreground">{artifact.path}</div>
+            {!isCompact && artifact.producedByNodeId ? <div className="mt-0.5 truncate text-[10px] text-muted-foreground">by {artifact.producedByNodeId}</div> : null}
+          </div>
+          <span className="truncate rounded-md border border-border bg-background px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">{artifact.kind}</span>
+          <div className="flex justify-end gap-1">
+            <button type="button" title="View artifact" className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => actions.onViewArtifact?.(artifact)}><Eye className="h-3.5 w-3.5" /></button>
+            <button type="button" title="Rerun artifact" className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => actions.onRerunArtifact?.(artifact)}><RefreshCw className="h-3.5 w-3.5" /></button>
+            <button type="button" title="Review downstream" className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => actions.onReviewDownstream?.(artifact)}><SearchCheck className="h-3.5 w-3.5" /></button>
+            <button type="button" title="Repair downstream" className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => onRepairArtifact(artifact)}><Wrench className="h-3.5 w-3.5" /></button>
+            <button type="button" title="Regenerate artifact" className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => actions.onRegenerateArtifact?.(artifact)}><Sparkles className="h-3.5 w-3.5" /></button>
+            <button type="button" title="Invalidate artifact" className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => actions.onInvalidateArtifact?.(artifact)}><XCircle className="h-3.5 w-3.5" /></button>
+            <button type="button" title="Accept as source of truth" className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => actions.onAcceptArtifact?.(artifact)}><Check className="h-3.5 w-3.5" /></button>
+          </div>
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -262,54 +347,189 @@ function WorkflowStartCard({
   definitions,
   onStartWorkflow,
   isStartingWorkflow,
+  run,
+  onRepairArtifact,
 }: {
   definitions?: WorkflowDefinitionSummary[]
   onStartWorkflow?: (definition: WorkflowDefinitionSummary) => void | Promise<void>
   isStartingWorkflow?: boolean
+  run?: WorkflowRunProjection | null
+  onRepairArtifact?: (artifact: WorkflowArtifactRef) => void
 }) {
   if (!definitions?.length || !onStartWorkflow) return null
 
-  return (
-    <section className="border-b border-border p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-          <GitBranch className="h-3.5 w-3.5" /> Start Workflow
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            // Mock trigger for proposed manifest testing
-            document.dispatchEvent(new CustomEvent("kanna:mock_proposed_manifest"))
-          }}
-          className="text-[10px] uppercase font-semibold text-primary hover:underline"
-        >
-          Test Import
-        </button>
-      </div>
-      <div className="space-y-2">
-        {definitions.map((definition) => (
-          <div key={definition.id} className="rounded-2xl border border-border bg-card p-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="truncate text-sm font-medium text-foreground">{definition.name}</div>
-                <div className="mt-1 flex flex-wrap gap-1.5 text-[11px] text-muted-foreground">
-                  <span className="rounded-md border border-border bg-background px-1.5 py-0.5 font-mono">{definition.workflowType}</span>
-                  {definition.currentVersion ? <span className="rounded-md border border-border bg-background px-1.5 py-0.5 font-mono">{definition.currentVersion}</span> : null}
+  const groups = useMemo(() => {
+    const registered = definitions.filter(d => d.isRegistered && d.isEnabled)
+    const running: WorkflowDefinitionSummary[] = []
+    const repairable: WorkflowDefinitionSummary[] = []
+    const review: WorkflowDefinitionSummary[] = []
+    const blocked: WorkflowDefinitionSummary[] = []
+    const ready: WorkflowDefinitionSummary[] = []
+
+    for (const def of registered) {
+      if (def.readiness === "running") running.push(def)
+      else if (def.readiness === "can_repair") repairable.push(def)
+      else if (def.readiness === "needs_review") review.push(def)
+      else if (def.readiness === "blocked") blocked.push(def)
+      else ready.push(def)
+    }
+
+    return { running, repairable, review, blocked, ready }
+  }, [definitions])
+
+  const renderGroup = (
+    title: string,
+    items: WorkflowDefinitionSummary[],
+    badgeClass: string,
+    icon: React.ReactNode
+  ) => {
+    if (items.length === 0) return null
+
+    return (
+      <div className="space-y-2 mt-4 first:mt-0">
+        <h4 className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground flex items-center gap-1.5 px-1">
+          {icon}
+          {title} ({items.length})
+        </h4>
+        <div className="space-y-2">
+          {items.map((definition) => {
+            const repairableArt = run?.latestArtifacts?.find(art => art.workflowStatus === "needs_repair")
+
+            return (
+              <div key={definition.id} className="rounded-2xl border border-border bg-card p-3 shadow-sm hover:shadow-md transition-shadow">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="truncate text-sm font-semibold text-foreground" title={definition.name}>{definition.name}</span>
+                      <code className="text-[10px] px-1 rounded bg-muted text-muted-foreground font-mono">{definition.slug}</code>
+                    </div>
+                    {definition.description ? (
+                      <p className="mt-1.5 text-xs text-muted-foreground line-clamp-2 leading-relaxed">{definition.description}</p>
+                    ) : null}
+
+                    {definition.readiness === "blocked" && definition.unsatisfiedInputs && (
+                      <div className="mt-2.5 space-y-1">
+                        <div className="text-[10px] font-medium text-red-500 uppercase tracking-wider">Unsatisfied Inputs:</div>
+                        <div className="flex flex-wrap gap-1">
+                          {definition.unsatisfiedInputs.map((input, idx) => (
+                            <span
+                              key={idx}
+                              className={cn(
+                                "text-[10px] px-2 py-0.5 rounded-full border font-mono truncate max-w-[200px]",
+                                input.status === "missing"
+                                  ? "border-red-500/25 bg-red-500/10 text-red-500"
+                                  : "border-amber-500/25 bg-amber-500/10 text-amber-500"
+                              )}
+                              title={`${input.path} (${input.status || "unreviewed"})`}
+                            >
+                              {input.status === "missing" ? "Missing" : "Unreviewed"}: {input.path.split("/").pop()}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {definition.readiness === "needs_review" && definition.staleInputs && (
+                      <div className="mt-2.5 space-y-1">
+                        <div className="text-[10px] font-medium text-amber-500 uppercase tracking-wider">Stale / Updated Inputs:</div>
+                        <div className="flex flex-wrap gap-1">
+                          {definition.staleInputs.map((input, idx) => (
+                            <span
+                              key={idx}
+                              className="text-[10px] px-2 py-0.5 rounded-full border border-amber-500/25 bg-amber-500/10 text-amber-500 font-mono truncate max-w-[200px]"
+                              title={`${input.path} (Stale input)`}
+                            >
+                              Stale: {input.path.split("/").pop()}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {definition.readiness === "can_repair" && (
+                      <div className="mt-2 text-[11px] text-indigo-500 flex items-center gap-1">
+                        <Wrench className="h-3 w-3 shrink-0" />
+                        Downstream changes require repair before run.
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-1.5 self-start">
+                    {definition.readiness === "can_repair" && repairableArt && onRepairArtifact && (
+                      <button
+                        type="button"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-indigo-500/20 bg-indigo-500/10 text-indigo-500 hover:bg-indigo-500/20 hover:text-indigo-600 transition-colors"
+                        title="Repair affected artifacts"
+                        onClick={() => onRepairArtifact(repairableArt)}
+                      >
+                        <Wrench className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className={cn(
+                        "inline-flex h-8 items-center rounded-full border px-3 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                        definition.readiness === "blocked"
+                          ? "border-border bg-muted/20 text-muted-foreground cursor-not-allowed"
+                          : "border-border bg-background text-foreground hover:bg-muted"
+                      )}
+                      disabled={Boolean(isStartingWorkflow) || definition.readiness === "blocked"}
+                      onClick={() => onStartWorkflow(definition)}
+                      title={definition.readiness === "blocked" ? "Workflow is blocked by unsatisfied inputs" : "Start workflow"}
+                    >
+                      {isStartingWorkflow ? "Starting..." : "Start"}
+                    </button>
+                  </div>
                 </div>
-                {definition.description ? <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted-foreground">{definition.description}</p> : null}
               </div>
-              <button
-                type="button"
-                className="inline-flex h-8 shrink-0 items-center rounded-full border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={Boolean(isStartingWorkflow)}
-                onClick={() => onStartWorkflow(definition)}
-              >
-                {isStartingWorkflow ? "Starting..." : "Start"}
-              </button>
-            </div>
-          </div>
-        ))}
+            )
+          })}
+        </div>
       </div>
+    )
+  }
+
+  const hasItems = Object.values(groups).some(arr => arr.length > 0)
+  if (!hasItems) {
+    return (
+      <div className="p-4 text-center text-xs text-muted-foreground">
+        No registered & enabled workflows found for this project.
+      </div>
+    )
+  }
+
+  return (
+    <section className="p-3 border-b border-border space-y-4">
+      {renderGroup(
+        "Running",
+        groups.running,
+        "text-sky-500",
+        <CircleDashed className="h-3.5 w-3.5 text-sky-500 animate-spin" />
+      )}
+      {renderGroup(
+        "Repairable",
+        groups.repairable,
+        "text-indigo-500",
+        <Wrench className="h-3.5 w-3.5 text-indigo-500 animate-pulse" />
+      )}
+      {renderGroup(
+        "Needs Review",
+        groups.review,
+        "text-amber-500",
+        <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+      )}
+      {renderGroup(
+        "Blocked",
+        groups.blocked,
+        "text-red-500",
+        <AlertCircle className="h-3.5 w-3.5 text-red-500" />
+      )}
+      {renderGroup(
+        "Ready",
+        groups.ready,
+        "text-emerald-500",
+        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+      )}
     </section>
   )
 }
@@ -328,7 +548,47 @@ export function WorkflowTrackerPanel({
   const changedArtifact = useMemo(() => findChangedArtifact(run?.latestArtifacts), [run])
   const changedImpacts = useMemo(() => changedArtifact ? getImpactsForArtifact(changedArtifact.id, run?.impacts) : [], [changedArtifact, run?.impacts])
 
-  if (!run || !counts) return <EmptyWorkflowPanel onClose={actions.onClose} />
+  if (!run || !counts) {
+    return (
+      <aside className={cn("flex h-full min-h-0 flex-col border-l border-border bg-background", className)}>
+        <header className="shrink-0 border-b border-border bg-background/95 px-3 py-3 backdrop-blur-md">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                <Layers3 className="h-3.5 w-3.5 text-logo" /> Workflow Registry
+              </div>
+              <h2 className="mt-1 text-base font-semibold text-foreground">Project Workflows</h2>
+            </div>
+            {actions.onClose ? (
+              <button type="button" className="rounded-full p-2 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={actions.onClose} title="Close workflow sidebar">
+                <PanelRightClose className="h-4 w-4" />
+              </button>
+            ) : null}
+          </div>
+        </header>
+
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {actions.proposedManifest && actions.onPublishWorkflow ? (
+            <div className="p-3 border-b border-border">
+              <WorkflowManifestReviewCard
+                manifest={actions.proposedManifest}
+                onPublish={actions.onPublishWorkflow}
+                onReject={actions.onRejectWorkflow}
+              />
+            </div>
+          ) : null}
+
+          <WorkflowStartCard
+            definitions={actions.workflowDefinitions}
+            onStartWorkflow={actions.onStartWorkflow}
+            isStartingWorkflow={actions.isStartingWorkflow}
+            run={null}
+            onRepairArtifact={setRepairTarget}
+          />
+        </div>
+      </aside>
+    )
+  }
 
   return (
     <aside className={cn("flex h-full min-h-0 flex-col border-l border-border bg-background", className)}>
@@ -394,7 +654,13 @@ export function WorkflowTrackerPanel({
           </div>
         ) : null}
 
-        <WorkflowStartCard definitions={actions.workflowDefinitions} onStartWorkflow={actions.onStartWorkflow} isStartingWorkflow={actions.isStartingWorkflow} />
+        <WorkflowStartCard
+          definitions={actions.workflowDefinitions}
+          onStartWorkflow={actions.onStartWorkflow}
+          isStartingWorkflow={actions.isStartingWorkflow}
+          run={run}
+          onRepairArtifact={setRepairTarget}
+        />
 
         <section className="border-b border-border p-3">
           <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
@@ -466,14 +732,14 @@ export function WorkflowTrackerPanel({
 
         <section className="p-3">
           <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-            <History className="h-3.5 w-3.5" /> Latest Artifacts
+            <History className="h-3.5 w-3.5" /> Workflow Artifacts
           </div>
-          <div className="flex flex-col gap-1.5">
-            {run.latestArtifacts?.map((artifact) => <ArtifactChip key={artifact.id} artifact={artifact} densityMode={densityMode} actions={{
-              ...actions,
-              onRepairDownstream: (a) => setRepairTarget(a)
-            }} />)}
-          </div>
+          <WorkflowArtifactsTable
+            artifacts={run.latestArtifacts ?? []}
+            densityMode={densityMode}
+            actions={actions}
+            onRepairArtifact={setRepairTarget}
+          />
         </section>
       </div>
       
