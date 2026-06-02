@@ -16,6 +16,11 @@ import {
   Sparkles,
   Wrench,
   XCircle,
+  Plus,
+  Trash2,
+  ArrowRight,
+  Package,
+  Link2,
   CheckCircle2,
   AlertCircle,
 } from "lucide-react"
@@ -213,6 +218,7 @@ function WorkflowNodeRow({
   actions,
   onSelectNode,
   onRerunNode,
+  onZoomIn,
 }: {
   node: WorkflowNode
   depth: number
@@ -221,6 +227,7 @@ function WorkflowNodeRow({
   actions?: WorkflowTrackerActions
   onSelectNode?: (node: WorkflowNode) => void
   onRerunNode?: (node: WorkflowNode) => void
+  onZoomIn?: (node: WorkflowNode) => void
 }) {
   const startsOpen = densityMode === "expanded" || node.status === "running" || node.children?.some((child) => child.status === "running")
   const [open, setOpen] = useState(startsOpen)
@@ -256,30 +263,80 @@ function WorkflowNodeRow({
             </span>
           </span>
           <NodeMeta node={node} densityMode={densityMode} />
+          
+          {hasChildren && !isCompact && (
+            <div className="mt-1 flex items-center gap-1.5 text-[10.5px] text-muted-foreground font-medium bg-muted/30 px-1.5 py-0.5 rounded-md w-fit">
+              <span>{(() => {
+                const cCounts = countLocalChildren(node)
+                return `${cCounts.done}/${cCounts.known} steps done`
+              })()}</span>
+              {(() => {
+                function countArtifacts(n: WorkflowNode): number {
+                  let count = n.artifacts?.length ?? 0
+                  if (n.children) {
+                    for (const child of n.children) {
+                      count += countArtifacts(child)
+                    }
+                  }
+                  return count
+                }
+                const artCount = countArtifacts(node)
+                return artCount > 0 ? (
+                  <>
+                    <span>•</span>
+                    <span className="text-emerald-500">{artCount} artifact{artCount > 1 ? 's' : ''}</span>
+                  </>
+                ) : null
+              })()}
+            </div>
+          )}
+
           {node.condition && !isCompact ? <div className="mt-1 line-clamp-2 text-[11px] text-muted-foreground font-mono">if: {node.condition}</div> : null}
           {node.logSummary && !isCompact ? <div className="mt-1 line-clamp-2 text-xs text-muted-foreground font-mono">{node.logSummary}</div> : null}
           {node.artifacts?.length && !isCompact ? <div className="mt-2 flex flex-col gap-1.5">{node.artifacts.map((artifact) => <ArtifactChip key={artifact.id} artifact={artifact} densityMode={densityMode} actions={actions} />)}</div> : null}
         </span>
-        {canRerun ? (
-          <span
-            role="button"
-            tabIndex={0}
-            className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-background hover:text-foreground group-hover:opacity-100"
-            title="Rerun node"
-            onClick={(event) => {
-              event.stopPropagation()
-              onRerunNode?.(node)
-            }}
-            onKeyDown={(event) => {
-              if (event.key !== "Enter" && event.key !== " ") return
-              event.preventDefault()
-              event.stopPropagation()
-              onRerunNode?.(node)
-            }}
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-          </span>
-        ) : null}
+        <div className="flex items-center gap-1 shrink-0">
+          {hasChildren && onZoomIn ? (
+            <span
+              role="button"
+              tabIndex={0}
+              className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-background hover:text-foreground group-hover:opacity-100"
+              title="Inspect sub-flow"
+              onClick={(event) => {
+                event.stopPropagation()
+                onZoomIn(node)
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" && event.key !== " ") return
+                event.preventDefault()
+                event.stopPropagation()
+                onZoomIn(node)
+              }}
+            >
+              <Eye className="h-3.5 w-3.5" />
+            </span>
+          ) : null}
+          {canRerun ? (
+            <span
+              role="button"
+              tabIndex={0}
+              className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-background hover:text-foreground group-hover:opacity-100"
+              title="Rerun node"
+              onClick={(event) => {
+                event.stopPropagation()
+                onRerunNode?.(node)
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" && event.key !== " ") return
+                event.preventDefault()
+                event.stopPropagation()
+                onRerunNode?.(node)
+              }}
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+            </span>
+          ) : null}
+        </div>
       </button>
       {hasChildren && open ? (
         <div>
@@ -293,6 +350,7 @@ function WorkflowNodeRow({
               actions={actions}
               onSelectNode={onSelectNode}
               onRerunNode={onRerunNode}
+              onZoomIn={onZoomIn}
             />
           ))}
         </div>
@@ -534,6 +592,290 @@ function WorkflowStartCard({
   )
 }
 
+function WorkflowFlowGraphView({
+  flowGraph,
+  actions
+}: {
+  flowGraph: NonNullable<WorkflowRunProjection["flowGraph"]>
+  actions: WorkflowTrackerActions
+}) {
+  const [sourceId, setSourceId] = useState<string>("")
+  const [targetId, setTargetId] = useState<string>("")
+
+  const nodes = flowGraph.nodes || []
+  const edges = flowGraph.edges || []
+  const packs = flowGraph.packs || []
+
+  const getDefinitionName = (id: string) => {
+    const found = nodes.find(n => n.id === id)
+    return found ? found.name : id
+  }
+
+  const handleAddEdge = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!sourceId || !targetId || sourceId === targetId) return
+    void actions.onAddFlowEdge?.(sourceId, targetId)
+    setSourceId("")
+    setTargetId("")
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Workflow Packs Section */}
+      {packs.length > 0 && (
+        <section className="border-b border-border p-3">
+          <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+            <Package className="h-3.5 w-3.5 text-logo" /> Workflow Packs
+          </div>
+          <div className="space-y-2">
+            {packs.map((pack) => {
+              const registeredCount = pack.workflowDefinitions?.filter(pd => 
+                nodes.some(n => n.id === pd.workflowDefinitionId)
+              ).length ?? 0
+              const totalCount = pack.workflowDefinitions?.length ?? 0
+              const isRegistered = registeredCount === totalCount && totalCount > 0
+
+              return (
+                <div key={pack.id} className="rounded-2xl border border-border bg-card p-3 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="truncate text-sm font-semibold text-foreground">{pack.name}</span>
+                        <code className="text-[10px] px-1 rounded bg-muted text-muted-foreground font-mono">{pack.slug}</code>
+                      </div>
+                      {pack.description && (
+                        <p className="mt-1 text-xs text-muted-foreground leading-relaxed">{pack.description}</p>
+                      )}
+                      <div className="mt-2 text-[10px] text-muted-foreground font-medium">
+                        {registeredCount} / {totalCount} Workflows Registered
+                      </div>
+                    </div>
+                    {!isRegistered && actions.onRegisterPack && (
+                      <button
+                        type="button"
+                        className="inline-flex h-7 items-center rounded-full bg-logo/10 text-logo border border-logo/20 px-2.5 text-xs font-medium hover:bg-logo/20 transition-colors"
+                        onClick={() => actions.onRegisterPack?.(pack.id)}
+                      >
+                        Register
+                      </button>
+                    )}
+                    {isRegistered && (
+                      <span className="inline-flex h-7 items-center rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-2.5 text-xs font-medium">
+                        Registered
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Project Flow Graph Section */}
+      <section className="border-b border-border p-3">
+        <div className="mb-2 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+            <Link2 className="h-3.5 w-3.5 text-logo" /> Project Flow Graph
+          </div>
+        </div>
+
+        {edges.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
+            No connections established yet. Build one below or register a pack!
+          </div>
+        ) : (
+          <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+            {edges.map((edge) => {
+              const sourceName = getDefinitionName(edge.sourceWorkflowDefinitionId)
+              const targetName = getDefinitionName(edge.targetWorkflowDefinitionId)
+
+              return (
+                <div
+                  key={edge.id}
+                  className={cn(
+                    "group relative rounded-xl border p-2.5 bg-card text-xs flex flex-col gap-2 transition-all hover:shadow-sm",
+                    edge.status === "pending_approval" ? "border-amber-500/30 bg-amber-500/[0.02]" : "border-border"
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                      <span className="font-semibold text-foreground truncate max-w-[120px]" title={sourceName}>
+                        {sourceName}
+                      </span>
+                      <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0" />
+                      <span className="font-semibold text-foreground truncate max-w-[120px]" title={targetName}>
+                        {targetName}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {/* Provenance Badge */}
+                      <span
+                        className={cn(
+                          "text-[9px] px-1.5 py-0.5 rounded font-mono",
+                          edge.provenance === "explicit_user" && "bg-purple-500/10 text-purple-500 border border-purple-500/20",
+                          edge.provenance === "explicit_pack" && "bg-blue-500/10 text-blue-500 border border-blue-500/20",
+                          edge.provenance === "artifact_io_inferred" && "bg-amber-500/10 text-amber-500 border border-amber-500/20",
+                          edge.provenance === "ai_suggested" && "bg-pink-500/10 text-pink-500 border border-pink-500/20"
+                        )}
+                      >
+                        {edge.provenance === "explicit_user" && "User"}
+                        {edge.provenance === "explicit_pack" && "Pack"}
+                        {edge.provenance === "artifact_io_inferred" && "Inferred"}
+                        {edge.provenance === "ai_suggested" && "AI Suggested"}
+                      </span>
+
+                      {/* Status Badge */}
+                      <span
+                        className={cn(
+                          "text-[9px] px-1.5 py-0.5 rounded font-mono",
+                          edge.status === "approved" && "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20",
+                          edge.status === "pending_approval" && "bg-amber-500/10 text-amber-500 border border-amber-500/20 animate-pulse",
+                          edge.status === "rejected" && "bg-red-500/10 text-red-500 border border-red-500/20"
+                        )}
+                      >
+                        {edge.status}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* AI Suggested Pending Approval Actions */}
+                  {edge.status === "pending_approval" && (
+                    <div className="flex items-center justify-between gap-2 mt-1 pt-1.5 border-t border-border/50">
+                      <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                        <Sparkles className="h-3 w-3 text-pink-500" />
+                        AI suggested relationship
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          className="h-6 px-2 rounded bg-emerald-500 text-white font-medium text-[10px] hover:bg-emerald-600 transition-colors flex items-center gap-0.5"
+                          onClick={() => actions.onApproveFlowEdge?.(edge.id)}
+                        >
+                          <Check className="h-3 w-3" /> Approve
+                        </button>
+                        <button
+                          type="button"
+                          className="h-6 px-2 rounded bg-red-500 text-white font-medium text-[10px] hover:bg-red-600 transition-colors flex items-center gap-0.5"
+                          onClick={() => actions.onRejectFlowEdge?.(edge.id)}
+                        >
+                          <XCircle className="h-3 w-3" /> Reject
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Manual Delete Button */}
+                  {edge.provenance === "explicit_user" && (
+                    <button
+                      type="button"
+                      className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 h-5 w-5 rounded bg-muted hover:bg-red-500 hover:text-white text-muted-foreground flex items-center justify-center transition-all"
+                      title="Delete connection"
+                      onClick={() => actions.onRemoveFlowEdge?.(edge.sourceWorkflowDefinitionId, edge.targetWorkflowDefinitionId)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Add Connection UI */}
+        <form onSubmit={handleAddEdge} className="mt-3 bg-muted/30 rounded-xl p-2.5 border border-border/50 space-y-2">
+          <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+            Add Connection
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <select
+              className="h-8 rounded border border-border bg-background text-xs text-foreground px-2 focus:outline-none focus:ring-1 focus:ring-logo"
+              value={sourceId}
+              onChange={(e) => setSourceId(e.target.value)}
+              required
+            >
+              <option value="">Source...</option>
+              {nodes.map(n => (
+                <option key={n.id} value={n.id}>{n.name}</option>
+              ))}
+            </select>
+            <select
+              className="h-8 rounded border border-border bg-background text-xs text-foreground px-2 focus:outline-none focus:ring-1 focus:ring-logo"
+              value={targetId}
+              onChange={(e) => setTargetId(e.target.value)}
+              required
+            >
+              <option value="">Target...</option>
+              {nodes.map(n => (
+                <option key={n.id} value={n.id} disabled={n.id === sourceId}>{n.name}</option>
+              ))}
+            </select>
+          </div>
+          <button
+            type="submit"
+            disabled={!sourceId || !targetId || sourceId === targetId}
+            className="w-full h-7 rounded bg-logo text-white text-xs font-semibold hover:bg-logo/90 disabled:opacity-55 disabled:cursor-not-allowed transition-colors"
+          >
+            Connect Workflows
+          </button>
+        </form>
+      </section>
+
+      {/* Artifact IO Inference / Manifest support visualizer */}
+      <section className="p-3">
+        <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+          <GitBranch className="h-3.5 w-3.5 text-logo" /> Workflow IO Manifests
+        </div>
+        <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+          {nodes.map((node) => {
+            const hasInputs = (node.manifest?.inputs?.length ?? 0) > 0
+            const hasOutputs = (node.manifest?.outputs?.length ?? 0) > 0
+
+            return (
+              <div key={node.id} className="rounded-xl border border-border bg-card p-2.5 text-xs space-y-2">
+                <div className="font-semibold text-foreground">{node.name}</div>
+                
+                <div className="grid grid-cols-2 gap-2 text-[10px]">
+                  <div>
+                    <div className="text-muted-foreground font-medium uppercase tracking-wider mb-1">Inputs</div>
+                    {hasInputs ? (
+                      <ul className="space-y-1">
+                        {node.manifest?.inputs?.map((inp, idx) => (
+                          <li key={idx} className="bg-muted px-1.5 py-0.5 rounded font-mono truncate text-muted-foreground" title={inp.path}>
+                            {inp.path.split("/").pop()}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span className="text-muted-foreground italic">None defined</span>
+                    )}
+                  </div>
+
+                  <div>
+                    <div className="text-muted-foreground font-medium uppercase tracking-wider mb-1">Outputs</div>
+                    {hasOutputs ? (
+                      <ul className="space-y-1">
+                        {node.manifest?.outputs?.map((out, idx) => (
+                          <li key={idx} className="bg-emerald-500/5 text-emerald-600 border border-emerald-500/10 px-1.5 py-0.5 rounded font-mono truncate" title={out.path}>
+                            {out.path.split("/").pop()}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span className="text-muted-foreground italic">None defined</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </section>
+    </div>
+  )
+}
+
 export function WorkflowTrackerPanel({
   run,
   className,
@@ -543,12 +885,36 @@ export function WorkflowTrackerPanel({
 }: WorkflowTrackerPanelProps) {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [repairTarget, setRepairTarget] = useState<WorkflowArtifactRef | null>(null)
+  const [activeViewNodeId, setActiveViewNodeId] = useState<string | null>(null)
+
+  // Helper to locate active sub-flow path
+  const activePathResult = useMemo(() => {
+    if (!run || !activeViewNodeId) return null
+    
+    function findNodeAndPath(node: WorkflowNode, targetId: string, path: WorkflowNode[] = []): { node: WorkflowNode; path: WorkflowNode[] } | null {
+      if (node.id === targetId) {
+        return { node, path: [...path, node] }
+      }
+      if (node.children) {
+        for (const child of node.children) {
+          const result = findNodeAndPath(child, targetId, [...path, node])
+          if (result) return result
+        }
+      }
+      return null
+    }
+
+    return findNodeAndPath(run.root, activeViewNodeId)
+  }, [run, activeViewNodeId])
+
   const counts = useMemo(() => run ? countKnownWorkflowNodes(run.root) : null, [run])
   const liveNode = useMemo(() => run ? findLiveNode(run.root) : null, [run])
   const changedArtifact = useMemo(() => findChangedArtifact(run?.latestArtifacts), [run])
   const changedImpacts = useMemo(() => changedArtifact ? getImpactsForArtifact(changedArtifact.id, run?.impacts) : [], [changedArtifact, run?.impacts])
 
-  if (!run || !counts) {
+  const isStubRun = Boolean(run?.id.startsWith("project_workflow_stub_"))
+
+  if (!run || !counts || isStubRun) {
     return (
       <aside className={cn("flex h-full min-h-0 flex-col border-l border-border bg-background", className)}>
         <header className="shrink-0 border-b border-border bg-background/95 px-3 py-3 backdrop-blur-md">
@@ -582,9 +948,16 @@ export function WorkflowTrackerPanel({
             definitions={actions.workflowDefinitions}
             onStartWorkflow={actions.onStartWorkflow}
             isStartingWorkflow={actions.isStartingWorkflow}
-            run={null}
+            run={isStubRun ? run : null}
             onRepairArtifact={setRepairTarget}
           />
+
+          {run?.flowGraph && (
+            <WorkflowFlowGraphView
+              flowGraph={run.flowGraph}
+              actions={actions}
+            />
+          )}
         </div>
       </aside>
     )
@@ -705,32 +1078,107 @@ export function WorkflowTrackerPanel({
         ) : null}
 
         <section className="border-b border-border p-3">
-          <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
-            <GitBranch className="h-3.5 w-3.5" /> Progress Tree
+          <div className="mb-2 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+              <GitBranch className="h-3.5 w-3.5" /> {activePathResult ? "Sub-flow Detail" : "Progress Tree"}
+            </div>
+            {activePathResult && (
+              <button
+                type="button"
+                className="text-xs font-semibold text-logo hover:underline"
+                onClick={() => setActiveViewNodeId(null)}
+              >
+                Back to Main Flow
+              </button>
+            )}
           </div>
+
+          {activePathResult && (
+            <div className="mb-3 flex items-center gap-1 text-[11px] text-muted-foreground flex-wrap bg-muted/40 p-2 rounded-xl border border-border/50">
+              <button
+                type="button"
+                className="hover:text-foreground hover:underline font-semibold"
+                onClick={() => setActiveViewNodeId(null)}
+              >
+                Main Flow
+              </button>
+              {activePathResult.path.filter(n => n.id !== run.root.id).map((pNode, index, arr) => {
+                const isLast = index === arr.length - 1
+                return (
+                  <div key={pNode.id} className="flex items-center gap-1">
+                    <ChevronRight className="h-3 w-3 shrink-0 opacity-70" />
+                    {isLast ? (
+                      <span className="font-bold text-foreground truncate max-w-[120px]" title={pNode.name}>
+                        {pNode.name}
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="hover:text-foreground hover:underline font-semibold truncate max-w-[100px]"
+                        title={pNode.name}
+                        onClick={() => setActiveViewNodeId(pNode.id)}
+                      >
+                        {pNode.name}
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
           <div className="overflow-hidden rounded-2xl border border-border bg-card">
-            {run.root.children?.map((node) => (
-              <WorkflowNodeRow
-                key={node.id}
-                node={node}
-                depth={0}
-                selectedNodeId={selectedNodeId}
-                densityMode={densityMode}
-                actions={{
-                  ...actions,
-                  onRepairDownstream: (artifact) => setRepairTarget(artifact)
-                }}
-                onRerunNode={actions.onRerunNode}
-                onSelectNode={(selected) => {
-                  setSelectedNodeId(selected.id)
-                  actions.onSelectNode?.(selected)
-                }}
-              />
-            ))}
+            {activePathResult ? (
+              activePathResult.node.children && activePathResult.node.children.length > 0 ? (
+                activePathResult.node.children.map((node) => (
+                  <WorkflowNodeRow
+                    key={node.id}
+                    node={node}
+                    depth={0}
+                    selectedNodeId={selectedNodeId}
+                    densityMode={densityMode}
+                    actions={{
+                      ...actions,
+                      onRepairDownstream: (artifact) => setRepairTarget(artifact)
+                    }}
+                    onRerunNode={actions.onRerunNode}
+                    onSelectNode={(selected) => {
+                      setSelectedNodeId(selected.id)
+                      actions.onSelectNode?.(selected)
+                    }}
+                    onZoomIn={(zoomNode) => setActiveViewNodeId(zoomNode.id)}
+                  />
+                ))
+              ) : (
+                <div className="p-4 text-center text-xs text-muted-foreground italic">
+                  No internal steps or tasks found in this sub-flow.
+                </div>
+              )
+            ) : (
+              run.root.children?.map((node) => (
+                <WorkflowNodeRow
+                  key={node.id}
+                  node={node}
+                  depth={0}
+                  selectedNodeId={selectedNodeId}
+                  densityMode={densityMode}
+                  actions={{
+                    ...actions,
+                    onRepairDownstream: (artifact) => setRepairTarget(artifact)
+                  }}
+                  onRerunNode={actions.onRerunNode}
+                  onSelectNode={(selected) => {
+                    setSelectedNodeId(selected.id)
+                    actions.onSelectNode?.(selected)
+                  }}
+                  onZoomIn={(zoomNode) => setActiveViewNodeId(zoomNode.id)}
+                />
+              ))
+            )}
           </div>
         </section>
 
-        <section className="p-3">
+        <section className="p-3 border-b border-border">
           <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.06em] text-muted-foreground">
             <History className="h-3.5 w-3.5" /> Workflow Artifacts
           </div>
@@ -741,6 +1189,13 @@ export function WorkflowTrackerPanel({
             onRepairArtifact={setRepairTarget}
           />
         </section>
+
+        {run.flowGraph && (
+          <WorkflowFlowGraphView
+            flowGraph={run.flowGraph}
+            actions={actions}
+          />
+        )}
       </div>
       
       {repairTarget ? (

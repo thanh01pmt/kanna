@@ -10,6 +10,8 @@ export type {
   WorkflowNodeType,
   WorkflowRunProjection,
   WorkflowDefinitionSummary,
+  WorkflowLock,
+  WorkflowLockConflict,
 } from "@kanna/shared/types"
 
 export interface WorkflowTrackerActions {
@@ -29,4 +31,10 @@ export interface WorkflowTrackerActions {
   proposedManifest?: import("@kanna/shared/workflow-schema").WorkflowManifest
   onPublishWorkflow?: (manifest: import("@kanna/shared/workflow-schema").WorkflowManifest) => void | Promise<void>
   onRejectWorkflow?: () => void
+  onRegisterPack?: (packId: string) => void | Promise<void>
+  onAddFlowEdge?: (sourceId: string, targetId: string) => void | Promise<void>
+  onRemoveFlowEdge?: (sourceId: string, targetId: string) => void | Promise<void>
+  onApproveFlowEdge?: (edgeId: string) => void | Promise<void>
+  onRejectFlowEdge?: (edgeId: string) => void | Promise<void>
+  onRecoverLock?: (lockId: string) => void | Promise<void>
 }

@@ -1337,6 +1337,7 @@ export class SupabaseWorkflowRuntimeStore implements WorkflowRuntimeStore {
         unsatisfiedInputs: unsatisfiedInputs.length > 0 ? unsatisfiedInputs : undefined,
         staleInputs: staleInputs.length > 0 ? staleInputs : undefined,
         settings: reg ? reg.settings_jsonb : undefined,
+        manifest: activeManifest,
       })
     }
 
@@ -1755,8 +1756,53 @@ export class SupabaseWorkflowRuntimeStore implements WorkflowRuntimeStore {
     return this.artifactRowsToRefs(Array.isArray(data) ? data as WorkflowArtifactRow[] : [])
   }
 
+  private async fetchProjectFlowGraph(projectId: string): Promise<any> {
+    try {
+      const registeredSummaries = await this.listDefinitions(projectId)
+      const manifests = new Map<string, WorkflowManifest>()
+      for (const summary of registeredSummaries) {
+        if (summary.manifest) {
+          manifests.set(summary.id, summary.manifest)
+        }
+      }
+
+      const { data: edgesData, error: edgesError } = await this.client
+        .from("project_flow_edges")
+        .select("id, project_id, source_workflow_definition_id, target_workflow_definition_id, provenance, status")
+        .eq("project_id", projectId)
+      
+      const storedEdges: ProjectFlowEdge[] = []
+      if (!edgesError && Array.isArray(edgesData)) {
+        for (const row of edgesData) {
+          storedEdges.push({
+            id: row.id,
+            projectId: row.project_id,
+            sourceWorkflowDefinitionId: row.source_workflow_definition_id,
+            targetWorkflowDefinitionId: row.target_workflow_definition_id,
+            provenance: row.provenance,
+            status: row.status
+          })
+        }
+      }
+
+      const inferredEdges = inferArtifactFlowEdges(registeredSummaries, manifests)
+      const resolvedEdges = resolveFlowEdges(projectId, inferredEdges, storedEdges)
+      const packsList = await this.listPacks()
+
+      return {
+        nodes: registeredSummaries,
+        edges: resolvedEdges,
+        packs: packsList
+      }
+    } catch (e) {
+      console.error("[workflow-runtime] Failed to fetch project flow graph:", e)
+      return { nodes: [], edges: [], packs: [] }
+    }
+  }
+
   async getProjectProjection(projectId: string): Promise<WorkflowRunProjection | null> {
     const seed = createSeedWorkflowProjection(projectId)
+    const flowGraph = await this.fetchProjectFlowGraph(projectId)
 
     try {
       const { data: runs, error: runError } = await this.client
@@ -1768,7 +1814,27 @@ export class SupabaseWorkflowRuntimeStore implements WorkflowRuntimeStore {
 
       if (runError) throw new Error(runError.message)
       const run = Array.isArray(runs) ? runs[0] as WorkflowRunRow | undefined : undefined
-      if (!run) return null
+      if (!run) {
+        return {
+          id: `project_workflow_stub_${projectId}`,
+          projectId,
+          workflowType: "project_overview",
+          title: "Project Workflows",
+          status: "horizon",
+          root: {
+            id: "root",
+            name: "Project Root",
+            nodeType: "workflow",
+            status: "horizon",
+            source: "imported",
+            order: 0,
+            children: []
+          },
+          latestArtifacts: [],
+          impacts: [],
+          flowGraph
+        }
+      }
 
       const { data: nodes, error: nodeError } = await this.client
         .from("workflow_nodes")
@@ -1794,13 +1860,17 @@ export class SupabaseWorkflowRuntimeStore implements WorkflowRuntimeStore {
         root: buildNodeTree(nodeRows, seed.root),
         latestArtifacts: latestArtifacts.length > 0 ? latestArtifacts : seed.latestArtifacts,
         impacts: impacts.length > 0 ? impacts : seed.impacts,
+        flowGraph,
       }
     } catch (error) {
       if (!this.warned) {
         this.warned = true
         console.warn("[workflow-runtime] Falling back to seed workflow projection:", error instanceof Error ? error.message : String(error))
       }
-      return seed
+      return {
+        ...seed,
+        flowGraph
+      }
     }
   }
 
@@ -3015,6 +3085,177 @@ export class SupabaseWorkflowRuntimeStore implements WorkflowRuntimeStore {
       .eq("project_id", args.projectId)
       .eq("workflow_definition_id", args.workflowDefinitionId)
 
+    if (error) throw new Error(error.message)
+  }
+
+  async listPacks(): Promise<WorkflowPack[]> {
+    const { data: packsData, error: packsError } = await this.client
+      .from("workflow_packs")
+      .select("id, slug, name, description")
+    if (packsError) throw new Error(packsError.message)
+
+    const { data: defsData, error: defsError } = await this.client
+      .from("workflow_pack_definitions")
+      .select("pack_id, workflow_definition_id, recommended_version_id, is_default_entrypoint")
+    if (defsError) throw new Error(defsError.message)
+
+    return (packsData as any[]).map(pack => {
+      const defs = (defsData as any[])
+        .filter(d => d.pack_id === pack.id)
+        .map(d => ({
+          workflowDefinitionId: d.workflow_definition_id,
+          versionId: d.recommended_version_id,
+          isDefaultEntrypoint: d.is_default_entrypoint
+        }))
+      return {
+        id: pack.id,
+        slug: pack.slug,
+        name: pack.name,
+        description: pack.description,
+        workflowDefinitions: defs
+      }
+    })
+  }
+
+  async registerPack(args: { projectId: string; packId: string }): Promise<void> {
+    const { data: defsData, error: defsError } = await this.client
+      .from("workflow_pack_definitions")
+      .select("workflow_definition_id, recommended_version_id, is_default_entrypoint")
+      .eq("pack_id", args.packId)
+    if (defsError) throw new Error(defsError.message)
+
+    for (const wdef of (defsData as any[])) {
+      const now = new Date().toISOString()
+      if (wdef.is_default_entrypoint) {
+        await this.client
+          .from("project_workflows")
+          .update({ is_default_entrypoint: false, updated_at: now })
+          .eq("project_id", args.projectId)
+      }
+      
+      const { error: insertError } = await this.client
+        .from("project_workflows")
+        .insert({
+          project_id: args.projectId,
+          workflow_definition_id: wdef.workflow_definition_id,
+          workflow_version_id: wdef.recommended_version_id,
+          is_default_entrypoint: wdef.is_default_entrypoint,
+          pack_id: args.packId,
+          enabled: true,
+          created_at: now,
+          updated_at: now,
+        })
+      if (insertError) {
+        await this.client
+          .from("project_workflows")
+          .update({ pack_id: args.packId, updated_at: now })
+          .eq("project_id", args.projectId)
+          .eq("workflow_definition_id", wdef.workflow_definition_id)
+      }
+    }
+  }
+
+  async addFlowEdge(args: {
+    projectId: string
+    sourceWorkflowDefinitionId: string
+    targetWorkflowDefinitionId: string
+    provenance: FlowEdgeProvenance
+  }): Promise<ProjectFlowEdge> {
+    const now = new Date().toISOString()
+    const { data, error } = await this.client
+      .from("project_flow_edges")
+      .insert({
+        project_id: args.projectId,
+        source_workflow_definition_id: args.sourceWorkflowDefinitionId,
+        target_workflow_definition_id: args.targetWorkflowDefinitionId,
+        provenance: args.provenance,
+        status: args.provenance === "ai_suggested" ? "pending_approval" : "approved",
+        created_at: now,
+        updated_at: now,
+      })
+      .select()
+      .single()
+
+    if (error) throw new Error(error.message)
+    const row = data as any
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      sourceWorkflowDefinitionId: row.source_workflow_definition_id,
+      targetWorkflowDefinitionId: row.target_workflow_definition_id,
+      provenance: row.provenance,
+      status: row.status
+    }
+  }
+
+  async removeFlowEdge(args: {
+    projectId: string
+    sourceWorkflowDefinitionId: string
+    targetWorkflowDefinitionId: string
+    provenance: FlowEdgeProvenance
+  }): Promise<void> {
+    const { data, error: selectError } = await this.client
+      .from("project_flow_edges")
+      .select("id, provenance, status")
+      .eq("project_id", args.projectId)
+      .eq("source_workflow_definition_id", args.sourceWorkflowDefinitionId)
+      .eq("target_workflow_definition_id", args.targetWorkflowDefinitionId)
+      .limit(1)
+
+    if (selectError) throw new Error(selectError.message)
+    const existing = Array.isArray(data) && data[0]
+
+    if (existing) {
+      if (existing.provenance === "artifact_io_inferred" || existing.provenance === "explicit_pack") {
+        const now = new Date().toISOString()
+        const { error } = await this.client
+          .from("project_flow_edges")
+          .update({
+            provenance: "explicit_user",
+            status: "rejected",
+            updated_at: now
+          })
+          .eq("id", existing.id)
+        if (error) throw new Error(error.message)
+      } else {
+        const { error } = await this.client
+          .from("project_flow_edges")
+          .delete()
+          .eq("id", existing.id)
+        if (error) throw new Error(error.message)
+      }
+    } else {
+      const now = new Date().toISOString()
+      const { error } = await this.client
+        .from("project_flow_edges")
+        .insert({
+          project_id: args.projectId,
+          source_workflow_definition_id: args.sourceWorkflowDefinitionId,
+          target_workflow_definition_id: args.targetWorkflowDefinitionId,
+          provenance: "explicit_user",
+          status: "rejected",
+          created_at: now,
+          updated_at: now,
+        })
+      if (error) throw new Error(error.message)
+    }
+  }
+
+  async approveFlowEdge(args: { projectId: string; edgeId: string }): Promise<void> {
+    const now = new Date().toISOString()
+    const { error } = await this.client
+      .from("project_flow_edges")
+      .update({ status: "approved", updated_at: now })
+      .eq("id", args.edgeId)
+    if (error) throw new Error(error.message)
+  }
+
+  async rejectFlowEdge(args: { projectId: string; edgeId: string }): Promise<void> {
+    const now = new Date().toISOString()
+    const { error } = await this.client
+      .from("project_flow_edges")
+      .update({ status: "rejected", updated_at: now })
+      .eq("id", args.edgeId)
     if (error) throw new Error(error.message)
   }
 }

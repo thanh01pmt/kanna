@@ -1110,6 +1110,8 @@ export interface WorkflowArtifactRef {
   updatedAt?: string
   producedByNodeId?: string
   dependsOn?: string[]
+  ownershipClass?: 'canonical' | 'derived' | 'shared'
+  ownerWorkflowId?: string
 }
 
 export interface WorkflowArtifactImpact {
@@ -1189,6 +1191,25 @@ export interface ProjectFlowEdge {
   conflictReason?: string
 }
 
+export interface WorkflowLock {
+  id: string
+  scope: string       // e.g. "file:path/to/file", "directory:path/to/dir", "glob:*.json"
+  workflowId: string
+  nodeId?: string
+  status: 'active' | 'recoverable'
+  acquiredAt: string
+  expiresAt?: string
+}
+
+export interface WorkflowLockConflict {
+  id: string
+  scope: string
+  blockingWorkflowId: string
+  requestingWorkflowId: string
+  type: 'ownership' | 'scope_overlap'
+  artifactPath?: string
+}
+
 export interface WorkflowRunProjection {
   id: string
   projectId?: string
@@ -1208,5 +1229,7 @@ export interface WorkflowRunProjection {
     edges: ProjectFlowEdge[]
     packs?: WorkflowPack[]
   }
+  locks?: WorkflowLock[]
+  lockConflicts?: WorkflowLockConflict[]
 }
 

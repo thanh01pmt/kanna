@@ -13,6 +13,7 @@ import {
   setCachedChangelog,
   shouldPreviewChatSoundChange,
   SkillsSection,
+  parseWorkflowImportText,
 } from "./SettingsPage"
 import { SettingsHeaderButton } from "../components/ui/settings-header-button"
 import type { UpdateSnapshot } from "@kanna/shared/types"
@@ -85,6 +86,55 @@ describe("fetchGithubReleases", () => {
     await expect(fetchGithubReleases(async () => new Response("nope", { status: 403 }))).rejects.toThrow(
       "GitHub releases request failed with status 403"
     )
+  })
+})
+
+describe("parseWorkflowImportText", () => {
+  test("parses workflow Markdown frontmatter into a manifest", () => {
+    const parsed = parseWorkflowImportText([
+      "---",
+      "name: create-lesson",
+      "version: v1",
+      "description: Create a lesson",
+      "entrypoint: true",
+      "inputs:",
+      "  - type: file",
+      "    path: LEARNER_PROFILE.md",
+      "artifacts:",
+      "  - id: lesson",
+      "    name: Lesson",
+      "    pattern: LESSON_*.md",
+      "---",
+      "Use LEARNER_PROFILE.md to write LESSON_001.md.",
+    ].join("\n"))
+
+    expect(parsed.manifest).toMatchObject({
+      name: "create-lesson",
+      version: "v1",
+      description: "Create a lesson",
+      entrypoint: true,
+      inputs: [{ type: "file", path: "LEARNER_PROFILE.md" }],
+      artifacts: [{ id: "lesson", name: "Lesson", pattern: "LESSON_*.md" }],
+    })
+    expect(parsed.warnings).toEqual([])
+  })
+
+  test("warns when the body references undeclared artifacts", () => {
+    const parsed = parseWorkflowImportText([
+      "---",
+      "name: create-framework",
+      "version: v1",
+      "artifacts:",
+      "  - id: framework",
+      "    name: Framework",
+      "    pattern: CURRICULUM_FRAMEWORK.md",
+      "---",
+      "Also write LESSON_001.md.",
+    ].join("\n"))
+
+    expect(parsed.warnings).toEqual([
+      "Body references LESSON_001.md, but it is not declared in frontmatter artifacts.",
+    ])
   })
 })
 

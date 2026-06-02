@@ -758,6 +758,81 @@ export function ChatPage() {
     setProposedManifest(null)
   }, [])
 
+  const handleRegisterPack = useCallback(async (packId: string) => {
+    if (!projectId) return
+    try {
+      await state.socket.command({
+        type: "project.registerPack",
+        projectId,
+        packId,
+      })
+      const definitions = await state.socket.command<WorkflowDefinitionSummary[]>({ type: "workflow.listDefinitions", projectId })
+      setWorkflowDefinitions(definitions)
+      if (workflowProjection) {
+        const projection = await state.socket.command<WorkflowRunProjection>({ type: "workflow.getProjection", projectId })
+        if (projection) setWorkflowProjection(projection)
+      }
+    } catch (err) {
+      console.error("Failed to register pack:", err)
+    }
+  }, [projectId, state.socket, workflowProjection])
+
+  const handleAddFlowEdge = useCallback(async (sourceId: string, targetId: string) => {
+    if (!projectId) return
+    try {
+      await state.socket.command({
+        type: "project.addFlowEdge",
+        projectId,
+        sourceWorkflowDefinitionId: sourceId,
+        targetWorkflowDefinitionId: targetId,
+        provenance: "explicit_user",
+      })
+    } catch (err) {
+      console.error("Failed to add flow edge:", err)
+    }
+  }, [projectId, state.socket])
+
+  const handleRemoveFlowEdge = useCallback(async (sourceId: string, targetId: string) => {
+    if (!projectId) return
+    try {
+      await state.socket.command({
+        type: "project.removeFlowEdge",
+        projectId,
+        sourceWorkflowDefinitionId: sourceId,
+        targetWorkflowDefinitionId: targetId,
+        provenance: "explicit_user",
+      })
+    } catch (err) {
+      console.error("Failed to remove flow edge:", err)
+    }
+  }, [projectId, state.socket])
+
+  const handleApproveFlowEdge = useCallback(async (edgeId: string) => {
+    if (!projectId) return
+    try {
+      await state.socket.command({
+        type: "project.approveFlowEdge",
+        projectId,
+        edgeId,
+      })
+    } catch (err) {
+      console.error("Failed to approve flow edge:", err)
+    }
+  }, [projectId, state.socket])
+
+  const handleRejectFlowEdge = useCallback(async (edgeId: string) => {
+    if (!projectId) return
+    try {
+      await state.socket.command({
+        type: "project.rejectFlowEdge",
+        projectId,
+        edgeId,
+      })
+    } catch (err) {
+      console.error("Failed to reject flow edge:", err)
+    }
+  }, [projectId, state.socket])
+
   const contextWindowSnapshot = useMemo(() => {
     const derivedSnapshot = deriveLatestContextWindowSnapshot(state.chatSnapshot?.messages ?? [])
     const previousSnapshot = baseContextWindowSnapshotRef.current
@@ -1382,6 +1457,11 @@ export function ChatPage() {
             onInvalidateArtifact={handleInvalidateArtifact}
             onAcceptArtifact={handleAcceptArtifact}
             onRerunNode={handleRerunNode}
+            onRegisterPack={handleRegisterPack}
+            onAddFlowEdge={handleAddFlowEdge}
+            onRemoveFlowEdge={handleRemoveFlowEdge}
+            onApproveFlowEdge={handleApproveFlowEdge}
+            onRejectFlowEdge={handleRejectFlowEdge}
             densityMode={projectUiState?.workflowDensityMode ?? "normal"}
             onDensityModeChange={(mode) => projectId && setWorkflowDensityMode(projectId, mode)}
             onClose={handleCloseRightSidebar}

@@ -17,6 +17,7 @@ import type {
   UpdateSnapshot,
   EditorPreset,
   WorkflowRunProjection,
+  FlowEdgeProvenance,
 } from "./types"
 
 export type { EditorPreset }
@@ -98,10 +99,16 @@ export type ClientCommand =
   | { type: "project.registerWorkflow"; projectId: string; workflowDefinitionId: string; versionId?: string; isDefaultEntrypoint?: boolean }
   | { type: "project.unregisterWorkflow"; projectId: string; workflowDefinitionId: string }
   | { type: "project.updateWorkflowRegistration"; projectId: string; workflowDefinitionId: string; patch: { versionId?: string; enabled?: boolean; isDefaultEntrypoint?: boolean; settings?: Record<string, unknown> } }
+  | { type: "project.registerPack"; projectId: string; packId: string }
+  | { type: "project.addFlowEdge"; projectId: string; sourceWorkflowDefinitionId: string; targetWorkflowDefinitionId: string; provenance: FlowEdgeProvenance }
+  | { type: "project.removeFlowEdge"; projectId: string; sourceWorkflowDefinitionId: string; targetWorkflowDefinitionId: string; provenance: FlowEdgeProvenance }
+  | { type: "project.approveFlowEdge"; projectId: string; edgeId: string }
+  | { type: "project.rejectFlowEdge"; projectId: string; edgeId: string }
   | { type: "workflow.startRun"; projectId: string; workflowDefinitionId: string; chatId?: string; input?: Record<string, unknown> }
   | { type: "workflow.publishManifest"; projectId?: string; manifest: Record<string, unknown>; sourceMarkdown?: string }
   | { type: "workflow.updateArtifactImpact"; projectId: string; runId?: string; sourceArtifactId: string; impactedArtifactId?: string; status: "needs_review" | "reviewed_ok" | "needs_repair" | "repaired" | "not_impacted" | "maybe_impacted"; reason?: string }
   | { type: "workflow.markArtifact"; projectId: string; artifactId: string; action: "invalidate" | "accept_source_of_truth"; reason?: string }
+  | { type: "workflow.recoverLock"; projectId: string; lockId: string }
   | { type: "update.check"; force?: boolean }
   | { type: "update.install" }
   | { type: "settings.readKeybindings" }

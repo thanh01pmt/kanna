@@ -899,9 +899,14 @@ export function parseWorkflowImportText(text: string) {
   const manifest = parseSimpleWorkflowFrontmatter(frontmatterMatch[1])
   const body = frontmatterMatch[2] ?? ""
   const artifacts = Array.isArray(manifest.artifacts) ? manifest.artifacts : []
+  const inputs = Array.isArray(manifest.inputs) ? manifest.inputs : []
+  const outputs = Array.isArray(manifest.outputs) ? manifest.outputs : []
   const declaredPatterns = new Set(
-    artifacts
-      .map((artifact) => typeof artifact?.pattern === "string" ? artifact.pattern : undefined)
+    [...artifacts, ...inputs, ...outputs]
+      .flatMap((entry) => [
+        typeof entry?.pattern === "string" ? entry.pattern : undefined,
+        typeof entry?.path === "string" ? entry.path : undefined,
+      ])
       .filter(Boolean)
   )
   const referencedFiles = new Set(body.match(/[A-Z][A-Z0-9_/*-]*\.(?:md|json|csv)/g) ?? [])

@@ -1395,6 +1395,80 @@ export function createWsRouter({
           await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
           return
         }
+        case "project.registerPack": {
+          const project = store.getProject(command.projectId)
+          if (!project) throw new Error("Project not found")
+          if (!resolvedWorkflowStore.registerPack) {
+            throw new Error("Workflow runtime store does not support registering packs.")
+          }
+          await resolvedWorkflowStore.registerPack({
+            projectId: command.projectId,
+            packId: command.packId,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { ok: true } })
+          await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
+          return
+        }
+        case "project.addFlowEdge": {
+          const project = store.getProject(command.projectId)
+          if (!project) throw new Error("Project not found")
+          if (!resolvedWorkflowStore.addFlowEdge) {
+            throw new Error("Workflow runtime store does not support adding flow edges.")
+          }
+          const edge = await resolvedWorkflowStore.addFlowEdge({
+            projectId: command.projectId,
+            sourceWorkflowDefinitionId: command.sourceWorkflowDefinitionId,
+            targetWorkflowDefinitionId: command.targetWorkflowDefinitionId,
+            provenance: command.provenance,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { ok: true, edge } })
+          await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
+          return
+        }
+        case "project.removeFlowEdge": {
+          const project = store.getProject(command.projectId)
+          if (!project) throw new Error("Project not found")
+          if (!resolvedWorkflowStore.removeFlowEdge) {
+            throw new Error("Workflow runtime store does not support removing flow edges.")
+          }
+          await resolvedWorkflowStore.removeFlowEdge({
+            projectId: command.projectId,
+            sourceWorkflowDefinitionId: command.sourceWorkflowDefinitionId,
+            targetWorkflowDefinitionId: command.targetWorkflowDefinitionId,
+            provenance: command.provenance,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { ok: true } })
+          await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
+          return
+        }
+        case "project.approveFlowEdge": {
+          const project = store.getProject(command.projectId)
+          if (!project) throw new Error("Project not found")
+          if (!resolvedWorkflowStore.approveFlowEdge) {
+            throw new Error("Workflow runtime store does not support approving flow edges.")
+          }
+          await resolvedWorkflowStore.approveFlowEdge({
+            projectId: command.projectId,
+            edgeId: command.edgeId,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { ok: true } })
+          await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
+          return
+        }
+        case "project.rejectFlowEdge": {
+          const project = store.getProject(command.projectId)
+          if (!project) throw new Error("Project not found")
+          if (!resolvedWorkflowStore.rejectFlowEdge) {
+            throw new Error("Workflow runtime store does not support rejecting flow edges.")
+          }
+          await resolvedWorkflowStore.rejectFlowEdge({
+            projectId: command.projectId,
+            edgeId: command.edgeId,
+          })
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { ok: true } })
+          await broadcastFilteredSnapshots({ projectIds: new Set([command.projectId]) })
+          return
+        }
         case "workflow.startRun": {
           const project = store.getProject(command.projectId)
           if (!project) {
