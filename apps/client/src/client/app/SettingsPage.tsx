@@ -49,6 +49,7 @@ import {
   type InstalledSkillSummary,
   type KeybindingAction,
   type LlmProviderKind,
+  type ProviderCatalogEntry,
   type InstalledSkillsSnapshot,
   type SkillInstallResult,
   type SkillSearchResult,
@@ -2085,11 +2086,16 @@ export function SettingsPage() {
   const [llmValidationStatus, setLlmValidationStatus] = useState<"idle" | "valid" | "invalid">("idle")
   const [llmValidationError, setLlmValidationError] = useState<unknown | null>(null)
   const [llmValidationDialogOpen, setLlmValidationDialogOpen] = useState(false)
+  const [piProviderCatalog, setPiProviderCatalog] = useState<ProviderCatalogEntry | null>(null)
   const updateSnapshot = state.updateSnapshot
   const handleWriteAppSettings = state.handleWriteAppSettings
   const handleReadLlmProvider = state.handleReadLlmProvider
   const handleWriteLlmProvider = state.handleWriteLlmProvider
   const handleValidateLlmProvider = state.handleValidateLlmProvider
+  const settingsProviderCatalogs = useMemo(() => {
+    if (!piProviderCatalog) return PROVIDERS
+    return PROVIDERS.map((provider) => provider.id === "pi" ? piProviderCatalog : provider)
+  }, [piProviderCatalog])
   const updateStatusLabel = updateSnapshot?.status === "checking"
     ? "Checking for updates…"
     : updateSnapshot?.status === "updating"
@@ -2178,6 +2184,21 @@ export function SettingsPage() {
     if (selectedPage !== "providers" || isConnecting) return
     void handleReadLlmProvider()
   }, [handleReadLlmProvider, isConnecting, selectedPage])
+
+  useEffect(() => {
+    if (selectedPage !== "providers" || isConnecting) return
+    let cancelled = false
+    void state.socket.command<ProviderCatalogEntry>({ type: "settings.readPiProviderCatalog" })
+      .then((catalog) => {
+        if (!cancelled) setPiProviderCatalog(catalog)
+      })
+      .catch(() => {
+        if (!cancelled) setPiProviderCatalog(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isConnecting, selectedPage, state.socket])
 
   useEffect(() => {
     if (selectedPage !== "changelog" || isConnecting) return
@@ -2867,7 +2888,7 @@ export function SettingsPage() {
                     >
                       <div className="max-w-[420px]">
                         <ChatPreferenceControls
-                          availableProviders={PROVIDERS}
+                          availableProviders={settingsProviderCatalogs}
                           selectedProvider="claude"
                           showProviderPicker={false}
                           providerLocked
@@ -2898,7 +2919,7 @@ export function SettingsPage() {
                     >
                       <div className="max-w-[420px]">
                         <ChatPreferenceControls
-                          availableProviders={PROVIDERS}
+                          availableProviders={settingsProviderCatalogs}
                           selectedProvider="codex"
                           showProviderPicker={false}
                           providerLocked
@@ -2929,7 +2950,7 @@ export function SettingsPage() {
                     >
                       <div className="max-w-[420px]">
                         <ChatPreferenceControls
-                          availableProviders={PROVIDERS}
+                          availableProviders={settingsProviderCatalogs}
                           selectedProvider="antigravity"
                           showProviderPicker={false}
                           providerLocked
@@ -2958,7 +2979,7 @@ export function SettingsPage() {
                     >
                       <div className="max-w-[420px]">
                         <ChatPreferenceControls
-                          availableProviders={PROVIDERS}
+                          availableProviders={settingsProviderCatalogs}
                           selectedProvider="pi"
                           showProviderPicker={false}
                           providerLocked

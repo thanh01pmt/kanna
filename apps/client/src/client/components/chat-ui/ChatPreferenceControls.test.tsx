@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { renderToStaticMarkup } from "react-dom/server"
-import { PROVIDERS } from "@kanna/shared/types"
+import { PROVIDERS, type ProviderCatalogEntry } from "@kanna/shared/types"
 import { ChatPreferenceControls } from "./ChatPreferenceControls"
 
 describe("ChatPreferenceControls", () => {
@@ -48,12 +48,24 @@ describe("ChatPreferenceControls", () => {
     expect(html).toContain("Plan Mode")
   })
 
-  test("renders custom Pi model label", () => {
+  test("renders Pi provider and model separately", () => {
+    const piCatalog: ProviderCatalogEntry = {
+      ...PROVIDERS.find((provider) => provider.id === "pi")!,
+      models: [
+        {
+          id: "9router/gemini-3-flash",
+          label: "gemini-3-flash",
+          providerId: "9router",
+          providerLabel: "9router",
+          supportsEffort: true,
+        },
+      ],
+    }
     const html = renderToStaticMarkup(
       <ChatPreferenceControls
-        availableProviders={PROVIDERS}
+        availableProviders={PROVIDERS.map((provider) => provider.id === "pi" ? piCatalog : provider)}
         selectedProvider="pi"
-        model="openai-codex/gpt-5.5"
+        model="9router/gemini-3-flash"
         modelOptions={{ reasoningEffort: "high" }}
         onProviderChange={() => {}}
         onModelChange={() => {}}
@@ -61,6 +73,7 @@ describe("ChatPreferenceControls", () => {
       />
     )
 
-    expect(html).toContain("openai-codex/gpt-5.5")
+    expect(html).toContain("9router")
+    expect(html).toContain("gemini-3-flash")
   })
 })

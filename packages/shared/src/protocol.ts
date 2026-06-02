@@ -128,6 +128,7 @@ export type ClientCommand =
   | { type: "settings.readKeybindings" }
   | { type: "settings.writeKeybindings"; bindings: KeybindingsSnapshot["bindings"] }
   | { type: "settings.readAppSettings" }
+  | { type: "settings.readPiProviderCatalog" }
   | { type: "settings.writeAppSettings"; analyticsEnabled: boolean }
   | { type: "settings.writeAppSettingsPatch"; patch: AppSettingsPatch }
   | { type: "settings.readLlmProvider" }

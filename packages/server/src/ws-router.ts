@@ -113,6 +113,7 @@ import { openExternal } from "./external-open"
 import { KeybindingsManager } from "./keybindings"
 import { killLocalHttpServer, listLocalHttpServers } from "./local-http-servers"
 import { ensureProjectDirectory, resolveLocalPath } from "./paths"
+import { readPiProviderCatalog } from "./pi-model-catalog"
 import { readProjectQuickActions, writeProjectQuickActions } from "./project-quick-actions"
 import { writeStandaloneTranscriptExport } from "./standalone-export"
 import { TerminalManager } from "./terminal-manager"
@@ -1839,6 +1840,10 @@ export function createWsRouter({
         }
         case "settings.readAppSettings": {
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: resolvedAppSettings.getSnapshot() })
+          return
+        }
+        case "settings.readPiProviderCatalog": {
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: readPiProviderCatalog() })
           return
         }
         case "settings.writeAppSettings": {

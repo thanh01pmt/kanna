@@ -1,4 +1,4 @@
-import { useState, type ComponentType, type SVGProps } from "react"
+import { useEffect, useState, type ComponentType, type SVGProps } from "react"
 import { Box, Brain, Gauge, ListTodo, LockOpen, SquareMenu, SquareMinus, Sparkles, Bot } from "lucide-react"
 import {
   CLAUDE_CONTEXT_WINDOW_OPTIONS,
@@ -176,6 +176,7 @@ export function ChatPreferenceControls({
   className,
 }: ChatPreferenceControlsProps) {
   const [customModelDraft, setCustomModelDraft] = useState(model)
+  useEffect(() => setCustomModelDraft(model), [model])
   const providerConfig = availableProviders.find((provider) => provider.id === selectedProvider) ?? availableProviders[0]
   const ProviderIcon = PROVIDER_ICONS[selectedProvider]
   const ModelIcon = Box
@@ -185,6 +186,30 @@ export function ChatPreferenceControls({
   const contextWindowOptions = providerConfig.models.find((candidate) => candidate.id === model)?.contextWindowOptions ?? []
   const selectedContextWindow = claudeModelOptions?.contextWindow ?? CLAUDE_CONTEXT_WINDOW_OPTIONS[0].id
   const ContextWindowIcon = selectedContextWindow === "1m" ? SquareMenu : SquareMinus
+  const selectedPiModel = selectedProvider === "pi"
+    ? providerConfig.models.find((candidate) => candidate.id === model)
+    : undefined
+  const selectedPiProviderId = selectedProvider === "pi"
+    ? selectedPiModel?.providerId ?? (model.includes("/") ? model.slice(0, model.indexOf("/")) : "custom")
+    : undefined
+  const piProviders = selectedProvider === "pi"
+    ? Array.from(
+      providerConfig.models.reduce((providers, candidate) => {
+        const providerId = candidate.providerId ?? (candidate.id.includes("/") ? candidate.id.slice(0, candidate.id.indexOf("/")) : "custom")
+        if (!providers.has(providerId)) {
+          providers.set(providerId, candidate.providerLabel ?? providerId)
+        }
+        return providers
+      }, new Map<string, string>())
+    ).map(([id, label]) => ({ id, label }))
+    : []
+  const selectedPiProviderLabel = piProviders.find((provider) => provider.id === selectedPiProviderId)?.label ?? selectedPiProviderId
+  const piModelsForSelectedProvider = selectedProvider === "pi"
+    ? providerConfig.models.filter((candidate) => {
+      const providerId = candidate.providerId ?? (candidate.id.includes("/") ? candidate.id.slice(0, candidate.id.indexOf("/")) : "custom")
+      return providerId === selectedPiProviderId
+    })
+    : []
 
   return (
     <div className={cn("flex md:justify-center items-center gap-0.5", className)}>
@@ -216,77 +241,131 @@ export function ChatPreferenceControls({
         </InputPopover>
       ) : null}
 
-      <InputPopover
-        trigger={(
-          <>
-            <ModelIcon className="h-3.5 w-3.5" />
-            <span>{providerConfig.models.find((candidate) => candidate.id === model)?.label ?? model}</span>
-          </>
-        )}
-      >
-        {(close) => (
-          <>
-            {providerConfig.models.map((candidate) => {
-              const Icon = Box
+      {selectedProvider === "pi" ? (
+        <>
+          <InputPopover
+            trigger={(
+              <>
+                <ProviderIcon className="h-3.5 w-3.5" />
+                <span>{selectedPiProviderLabel}</span>
+              </>
+            )}
+          >
+            {(close) => piProviders.map((provider) => {
+              const firstModel = providerConfig.models.find((candidate) => {
+                const providerId = candidate.providerId ?? (candidate.id.includes("/") ? candidate.id.slice(0, candidate.id.indexOf("/")) : "custom")
+                return providerId === provider.id
+              })
               return (
                 <PopoverMenuItem
-                  key={candidate.id}
+                  key={provider.id}
                   onClick={() => {
-                    onModelChange(selectedProvider, candidate.id)
-                    setCustomModelDraft(candidate.id)
+                    if (firstModel) {
+                      onModelChange(selectedProvider, firstModel.id)
+                      setCustomModelDraft(firstModel.id)
+                    }
                     close()
                   }}
-                  selected={model === candidate.id}
-                  icon={<Icon className="h-4 w-4 text-muted-foreground" />}
-                  label={
-                    showCodexCliRequirementHints && selectedProvider === "codex" && candidate.id === "gpt-5.5"
-                      ? (
-                        <>
-                          {candidate.label}{" "}
-                          <span className="text-xs font-normal text-muted-foreground">
-                            codex-cli &gt;= 0.124
-                          </span>
-                        </>
-                      )
-                      : candidate.label
-                  }
+                  selected={selectedPiProviderId === provider.id}
+                  icon={<ProviderIcon className="h-4 w-4 text-muted-foreground" />}
+                  label={provider.label}
                 />
               )
             })}
-            {selectedProvider === "pi" ? (
-              <form
-                className="border-t border-border/60 p-2"
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  const nextModel = customModelDraft.trim()
-                  if (!nextModel) return
-                  onModelChange(selectedProvider, nextModel)
+          </InputPopover>
+          <InputPopover
+            trigger={(
+              <>
+                <ModelIcon className="h-3.5 w-3.5" />
+                <span>{selectedPiModel?.label ?? (model.includes("/") ? model.slice(model.indexOf("/") + 1) : model)}</span>
+              </>
+            )}
+          >
+            {(close) => (
+              <>
+                {piModelsForSelectedProvider.map((candidate) => (
+                  <PopoverMenuItem
+                    key={candidate.id}
+                    onClick={() => {
+                      onModelChange(selectedProvider, candidate.id)
+                      setCustomModelDraft(candidate.id)
+                      close()
+                    }}
+                    selected={model === candidate.id}
+                    icon={<ModelIcon className="h-4 w-4 text-muted-foreground" />}
+                    label={candidate.label}
+                  />
+                ))}
+                <form
+                  className="border-t border-border/60 p-2"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    const nextModel = customModelDraft.trim()
+                    if (!nextModel) return
+                    onModelChange(selectedProvider, nextModel)
+                    close()
+                  }}
+                >
+                  <label className="block text-xs font-medium text-muted-foreground" htmlFor="pi-custom-model">
+                    Custom provider/model
+                  </label>
+                  <div className="mt-1 flex gap-2">
+                    <input
+                      id="pi-custom-model"
+                      value={customModelDraft}
+                      onChange={(event) => setCustomModelDraft(event.currentTarget.value)}
+                      placeholder="provider/model-id"
+                      className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-ring"
+                    />
+                    <button
+                      type="submit"
+                      className="rounded-md border border-border px-2 py-1.5 text-sm text-foreground hover:bg-muted/50"
+                    >
+                      Set
+                    </button>
+                  </div>
+                </form>
+              </>
+            )}
+          </InputPopover>
+        </>
+      ) : (
+        <InputPopover
+          trigger={(
+            <>
+              <ModelIcon className="h-3.5 w-3.5" />
+              <span>{providerConfig.models.find((candidate) => candidate.id === model)?.label ?? model}</span>
+            </>
+          )}
+        >
+          {(close) => providerConfig.models.map((candidate) => {
+            const Icon = Box
+            return (
+              <PopoverMenuItem
+                key={candidate.id}
+                onClick={() => {
+                  onModelChange(selectedProvider, candidate.id)
                   close()
                 }}
-              >
-                <label className="block text-xs font-medium text-muted-foreground" htmlFor="pi-custom-model">
-                  Custom model
-                </label>
-                <div className="mt-1 flex gap-2">
-                  <input
-                    id="pi-custom-model"
-                    value={customModelDraft}
-                    onChange={(event) => setCustomModelDraft(event.currentTarget.value)}
-                    placeholder="provider/model-id"
-                    className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-ring"
-                  />
-                  <button
-                    type="submit"
-                    className="rounded-md border border-border px-2 py-1.5 text-sm text-foreground hover:bg-muted/50"
-                  >
-                    Set
-                  </button>
-                </div>
-              </form>
-            ) : null}
-          </>
-        )}
-      </InputPopover>
+                selected={model === candidate.id}
+                icon={<Icon className="h-4 w-4 text-muted-foreground" />}
+                label={
+                  showCodexCliRequirementHints && selectedProvider === "codex" && candidate.id === "gpt-5.5"
+                    ? (
+                      <>
+                        {candidate.label}{" "}
+                        <span className="text-xs font-normal text-muted-foreground">
+                          codex-cli &gt;= 0.124
+                        </span>
+                      </>
+                    )
+                    : candidate.label
+                }
+              />
+            )
+          })}
+        </InputPopover>
+      )}
 
       <InputPopover
         trigger={(

@@ -136,6 +136,8 @@ export interface ProviderModelOption {
   id: string
   label: string
   supportsEffort: boolean
+  providerId?: string
+  providerLabel?: string
   aliases?: readonly string[]
   contextWindowOptions?: readonly ProviderContextWindowOption[]
   supportsMaxReasoningEffort?: boolean

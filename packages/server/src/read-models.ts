@@ -10,10 +10,20 @@ import type {
 } from "@kanna/shared/types"
 import type { ChatRecord, StoreState } from "./events"
 import { resolveLocalPath } from "./paths"
+import { readPiProviderCatalog } from "./pi-model-catalog"
 import { SERVER_PROVIDERS } from "./provider-catalog"
 
 const SIDEBAR_RECENT_WINDOW_MS = 24 * 60 * 60 * 1_000
 const SIDEBAR_FALLBACK_PREVIEW_LIMIT = 5
+
+function getAvailableProviders() {
+  try {
+    const piCatalog = readPiProviderCatalog()
+    return SERVER_PROVIDERS.map((provider) => provider.id === "pi" ? piCatalog : provider)
+  } catch {
+    return [...SERVER_PROVIDERS]
+  }
+}
 
 export function deriveStatus(chat: ChatRecord, activeStatus?: KannaStatus): KannaStatus {
   if (activeStatus) return activeStatus
@@ -214,6 +224,6 @@ export function deriveChatSnapshot(
     })),
     messages: transcript.messages,
     history: transcript.history,
-    availableProviders: [...SERVER_PROVIDERS],
+    availableProviders: getAvailableProviders(),
   }
 }
