@@ -33,6 +33,7 @@ import {
   FilePenLine,
   Sparkles,
   Eye,
+  EyeOff,
   Package,
   ArrowRight,
   Bot,
@@ -3170,6 +3171,8 @@ export function SettingsPage() {
   const [llmValidationStatus, setLlmValidationStatus] = useState<"idle" | "valid" | "invalid">("idle")
   const [llmValidationError, setLlmValidationError] = useState<unknown | null>(null)
   const [llmValidationDialogOpen, setLlmValidationDialogOpen] = useState(false)
+  const [isValidatingLlm, setIsValidatingLlm] = useState(false)
+  const [showLlmApiKey, setShowLlmApiKey] = useState(false)
   const [piProviderCatalog, setPiProviderCatalog] = useState<ProviderCatalogEntry | null>(null)
   const [agentCliDetection, setAgentCliDetection] = useState<AgentCliDetectionSnapshot | null>(null)
   const [agentCliDetectionError, setAgentCliDetectionError] = useState<string | null>(null)
@@ -3609,6 +3612,7 @@ export function SettingsPage() {
   async function commitLlmProvider(nextValue = llmProviderDraft) {
     try {
       setLlmProviderError(null)
+      setIsValidatingLlm(true)
       await handleWriteLlmProvider(nextValue)
       const validation = await handleValidateLlmProvider(nextValue)
       setLlmValidationStatus(validation.ok ? "valid" : "invalid")
@@ -3620,6 +3624,8 @@ export function SettingsPage() {
       setLlmValidationStatus("invalid")
       setLlmValidationError(fallbackError)
       setLlmProviderError(error instanceof Error ? error.message : "Unable to save quick response provider settings.")
+    } finally {
+      setIsValidatingLlm(false)
     }
   }
 
@@ -4424,25 +4430,26 @@ export function SettingsPage() {
                       </div>
                     </div>
 
-                    <SettingsRow
-                      title="Quick Response SDK"
-                      description={llmValidationDescription}
-                      bordered={false}
-                      alignStart
-                    >
-                      <div className="flex w-full max-w-[420px] flex-col gap-3">
-                        {llmProviderError ? (
-                          <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-                            {llmProviderError}
-                          </div>
-                        ) : null}
-                        {llmProvider?.warning ? (
-                          <div className="rounded-lg border border-border bg-card/30 px-4 py-3 text-sm text-muted-foreground">
-                            {llmProvider.warning}
-                          </div>
-                        ) : null}
+                    <div className="space-y-1">
+                      {llmProviderError ? (
+                        <div className="mb-4 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                          {llmProviderError}
+                        </div>
+                      ) : null}
+                      {llmProvider?.warning ? (
+                        <div className="mb-4 rounded-lg border border-border bg-card/30 px-4 py-3 text-sm text-muted-foreground">
+                          {llmProvider.warning}
+                        </div>
+                      ) : null}
+
+                      {/* Provider Selection */}
+                      <SettingsRow
+                        title="LLM Provider"
+                        description="Select the API provider for quick response tasks."
+                        bordered={false}
+                      >
                         <Select value={llmProviderDraft.provider} onValueChange={(value) => handleLlmProviderSelection(value as LlmProviderKind)}>
-                          <SelectTrigger className="w-full">
+                          <SelectTrigger className="w-full min-w-[280px] md:w-[320px]">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -4455,32 +4462,134 @@ export function SettingsPage() {
                             </SelectGroup>
                           </SelectContent>
                         </Select>
-                        {llmProviderDraft.provider === "custom" ? (
+                      </SettingsRow>
+
+                      {/* Base URL (if custom) */}
+                      {llmProviderDraft.provider === "custom" ? (
+                        <SettingsRow
+                          title="Base URL"
+                          description="The API endpoint prefix for custom provider requests."
+                        >
                           <Input
                             value={llmProviderDraft.baseUrl}
                             onChange={(event) => setLlmProviderDraft((current) => ({ ...current, baseUrl: event.target.value }))}
                             onBlur={() => void commitLlmProvider()}
                             onKeyDown={(event) => handleTextInputKeyDown(event, () => void commitLlmProvider())}
                             placeholder="https://your-provider.example/v1"
+                            className="w-full min-w-[280px] md:w-[320px] font-mono text-sm"
                           />
-                        ) : null}
-                        <Input
-                          type="password"
-                          value={llmProviderDraft.apiKey}
-                          onChange={(event) => setLlmProviderDraft((current) => ({ ...current, apiKey: event.target.value }))}
-                          onBlur={() => void commitLlmProvider()}
-                          onKeyDown={(event) => handleTextInputKeyDown(event, () => void commitLlmProvider())}
-                          placeholder="API key"
-                        />
+                        </SettingsRow>
+                      ) : null}
+
+                      {/* API Key */}
+                      <SettingsRow
+                        title="API Key"
+                        description="Your authentication credentials for the selected provider."
+                      >
+                        <div className="relative flex w-full min-w-[280px] md:w-[320px] items-center">
+                          <Input
+                            type={showLlmApiKey ? "text" : "password"}
+                            value={llmProviderDraft.apiKey}
+                            onChange={(event) => setLlmProviderDraft((current) => ({ ...current, apiKey: event.target.value }))}
+                            onBlur={() => void commitLlmProvider()}
+                            onKeyDown={(event) => handleTextInputKeyDown(event, () => void commitLlmProvider())}
+                            placeholder="API key"
+                            className="pr-10 font-mono text-sm"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowLlmApiKey(!showLlmApiKey)}
+                            className="absolute right-3 text-muted-foreground hover:text-foreground transition-colors"
+                            aria-label={showLlmApiKey ? "Hide API Key" : "Show API Key"}
+                          >
+                            {showLlmApiKey ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                          </button>
+                        </div>
+                      </SettingsRow>
+
+                      {/* Model ID */}
+                      <SettingsRow
+                        title="Model ID"
+                        description="The specific model identifier to be used (e.g. gpt-4o, claude-3-5-sonnet-latest)."
+                      >
                         <Input
                           value={llmProviderDraft.model}
                           onChange={(event) => setLlmProviderDraft((current) => ({ ...current, model: event.target.value }))}
                           onBlur={() => void commitLlmProvider()}
                           onKeyDown={(event) => handleTextInputKeyDown(event, () => void commitLlmProvider())}
                           placeholder="Model id"
+                          className="w-full min-w-[280px] md:w-[320px] font-mono text-sm"
                         />
-                      </div>
-                    </SettingsRow>
+                      </SettingsRow>
+
+                      {/* Connection Verification and Test */}
+                      <SettingsRow
+                        title="Connection Status"
+                        description={
+                          <>
+                            <span>Validate credentials and test connection to the selected LLM provider.</span>
+                            {llmProvider?.filePathDisplay ? (
+                              <span className="block mt-1 text-xs text-muted-foreground">
+                                Credentials are stored in {llmProvider.filePathDisplay}.
+                              </span>
+                            ) : null}
+                          </>
+                        }
+                        alignStart
+                      >
+                        <div className="flex flex-col md:items-end gap-3 w-full min-w-[280px] md:w-[320px]">
+                          <div className="text-sm">
+                            {isValidatingLlm ? (
+                              <div className="flex items-center gap-2 text-muted-foreground">
+                                <Loader2 className="size-4 animate-spin text-blue-500" />
+                                <span>Validating credentials...</span>
+                              </div>
+                            ) : (
+                              <div className="text-right">
+                                {llmValidationStatus === "valid" ? (
+                                  <span className="flex items-center justify-end gap-1.5 text-emerald-600 dark:text-emerald-400 font-medium">
+                                    <CheckCircle2 className="size-4" />
+                                    Connection valid
+                                  </span>
+                                ) : llmValidationStatus === "invalid" ? (
+                                  <span className="flex items-center justify-end gap-1.5 text-destructive font-medium">
+                                    <AlertCircle className="size-4" />
+                                    Connection invalid
+                                    {llmValidationError ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => setLlmValidationDialogOpen(true)}
+                                        className="underline underline-offset-2 hover:text-destructive/80 ml-1 text-xs"
+                                      >
+                                        See error
+                                      </button>
+                                    ) : null}
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground">Not tested yet</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={isValidatingLlm}
+                            onClick={() => void commitLlmProvider()}
+                            className="gap-2 w-full md:w-auto"
+                          >
+                            {isValidatingLlm ? (
+                              <Loader2 className="size-3.5 animate-spin" />
+                            ) : (
+                              <RefreshCw className="size-3.5" />
+                            )}
+                            Test Connection
+                          </Button>
+                        </div>
+                      </SettingsRow>
+                    </div>
                   </div>
                 ) : selectedPage === "keybindings" ? (
                   <div className="border-b border-border">
