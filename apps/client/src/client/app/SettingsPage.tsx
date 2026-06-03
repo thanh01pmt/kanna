@@ -35,6 +35,8 @@ import {
   Eye,
   Package,
   ArrowRight,
+  Bot,
+  Cpu,
 } from "lucide-react"
 import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
@@ -115,10 +117,16 @@ const sidebarItems = [
     subtitle: "Manage globally installed agent skills from the active skill lock file.",
   },
   {
-    id: "providers",
-    label: "Providers",
-    icon: MessageSquareQuote,
-    subtitle: "Manage the default chat provider and saved model defaults for each agent provider.",
+    id: "agents",
+    label: "Agents",
+    icon: Bot,
+    subtitle: "Manage default agent selection, default tools, and local/remote CLI configurations.",
+  },
+  {
+    id: "llm",
+    label: "LLM",
+    icon: Cpu,
+    subtitle: "Configure fallback LLM credentials and custom providers for Kanna.",
   },
   {
     id: "workflow",
@@ -575,11 +583,15 @@ function SkillResultCard({
 
 export function SkillsSection({
   state,
+  defaultProvider,
 }: {
   state: Pick<KannaState, "connectionStatus" | "socket">
+  defaultProvider?: AgentProvider
 }) {
   const socket = state.socket
   const connectionStatus = state.connectionStatus
+
+  // Claude-specific states
   const [query, setQuery] = useState("")
   const [results, setResults] = useState<SkillSearchResult[]>([])
   const [searchLoading, setSearchLoading] = useState(false)
@@ -592,6 +604,11 @@ export function SkillsSection({
   const [installingSkillId, setInstallingSkillId] = useState<string | null>(null)
   const [uninstallingSkillId, setUninstallingSkillId] = useState<string | null>(null)
   const [installMessages, setInstallMessages] = useState<Record<string, string>>({})
+
+  // Pi-specific states
+  const [piSkills, setPiSkills] = useState<string[]>([])
+  const [piLoading, setPiLoading] = useState(false)
+  const [piError, setPiError] = useState<string | null>(null)
 
   async function loadInstalledSkills() {
     if (connectionStatus !== "connected") {
@@ -617,56 +634,46 @@ export function SkillsSection({
     }
   }
 
-  useEffect(() => {
-    void loadInstalledSkills()
-  }, [connectionStatus, socket])
-
-  useEffect(() => {
-    const normalizedQuery = query.trim()
-    if (normalizedQuery.length < 2) {
-      setResults([])
-      setSearchError(null)
-      setSearchLoading(false)
-      return
-    }
-
+  async function loadPiSkills() {
     if (connectionStatus !== "connected") {
-      setResults([])
-      setSearchLoading(false)
-      setSearchError("Backend connection required.")
+      setPiSkills([])
+      setPiError(null)
+      setPiLoading(false)
       return
     }
 
-    let cancelled = false
-    setSearchLoading(true)
-    setSearchError(null)
-
-    const timeout = window.setTimeout(() => {
-      void socket.command<SkillSearchSnapshot>({
-        type: "skills.search",
-        query: normalizedQuery,
-        limit: 100,
-      })
-        .then((snapshot) => {
-          if (cancelled) return
-          setResults(snapshot.skills)
-        })
-        .catch((error) => {
-          if (cancelled) return
-          setResults([])
-          setSearchError(error instanceof Error ? error.message : "Unable to search skills.")
-        })
-        .finally(() => {
-          if (cancelled) return
-          setSearchLoading(false)
-        })
-    }, 250)
-
-    return () => {
-      cancelled = true
-      window.clearTimeout(timeout)
+    try {
+      setPiLoading(true)
+      setPiError(null)
+      const result = await socket.command<string[]>({ type: "pi.listSkills" })
+      setPiSkills(result)
+    } catch (error) {
+      setPiSkills([])
+      setPiError(error instanceof Error ? error.message : "Unable to scan Pi skills.")
+    } finally {
+      setPiLoading(false)
     }
-  }, [connectionStatus, query, socket])
+  }
+
+  const openPiSkillsDir = async () => {
+    try {
+      await socket.command({
+        type: "system.openExternal",
+        localPath: "~/.pi/agent/skills",
+        action: "open_finder",
+      })
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  useEffect(() => {
+    if (defaultProvider === "pi") {
+      void loadPiSkills()
+    } else if (defaultProvider === "claude" || defaultProvider === "codex" || !defaultProvider) {
+      void loadInstalledSkills()
+    }
+  }, [connectionStatus, socket, defaultProvider])
 
   async function installSkill(skill: SkillSearchResult) {
     if (connectionStatus !== "connected") {
@@ -734,6 +741,129 @@ export function SkillsSection({
     } finally {
       setUninstallingSkillId(null)
     }
+  }
+
+  useEffect(() => {
+    if (defaultProvider !== "claude" && defaultProvider !== "codex" && defaultProvider) {
+      return
+    }
+    const normalizedQuery = query.trim()
+    if (normalizedQuery.length < 2) {
+      setResults([])
+      setSearchError(null)
+      setSearchLoading(false)
+      return
+    }
+
+    if (connectionStatus !== "connected") {
+      setResults([])
+      setSearchLoading(false)
+      setSearchError("Backend connection required.")
+      return
+    }
+
+    let cancelled = false
+    setSearchLoading(true)
+    setSearchError(null)
+
+    const timeout = window.setTimeout(() => {
+      void socket.command<SkillSearchSnapshot>({
+        type: "skills.search",
+        query: normalizedQuery,
+        limit: 100,
+      })
+        .then((snapshot) => {
+          if (cancelled) return
+          setResults(snapshot.skills)
+        })
+          .catch((error) => {
+            if (cancelled) return
+            setResults([])
+            setSearchError(error instanceof Error ? error.message : "Unable to search skills.")
+          })
+          .finally(() => {
+            if (cancelled) return
+            setSearchLoading(false)
+          })
+      }, 250)
+
+      return () => {
+        cancelled = true
+        window.clearTimeout(timeout)
+      }
+  }, [connectionStatus, query, socket, defaultProvider])
+
+  if (defaultProvider === "pi") {
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-6 py-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex gap-3">
+              <AlertCircle className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
+              <div>
+                <div className="text-sm font-semibold text-foreground">Pi Agent Integration</div>
+                <div className="mt-1 text-sm text-muted-foreground leading-relaxed">
+                  Pi Agent tự quản lý các custom skills của nó. Hệ thống global skills của Kanna không được áp dụng.
+                </div>
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={openPiSkillsDir}
+              className="shrink-0 gap-1.5"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Open Skills Directory
+            </Button>
+          </div>
+        </div>
+
+        <section className="flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-medium text-foreground">Discovered Pi Skills</div>
+            {piLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+          </div>
+          {piError && <div className="text-xs text-destructive">{piError}</div>}
+          {piSkills.length > 0 ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              {piSkills.map((skillName) => (
+                <div key={skillName} className="flex items-center gap-3 rounded-lg border border-border bg-card/30 p-3">
+                  <BookText className="h-4 w-4 text-blue-500 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium text-foreground">{skillName}</div>
+                    <div className="truncate text-xs text-muted-foreground">Local Pi Skill</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : !piLoading ? (
+            <div className="rounded-lg border border-border bg-card/20 p-3 text-sm text-muted-foreground">
+              No custom skills found in Pi Agent skills directory.
+            </div>
+          ) : null}
+        </section>
+      </div>
+    )
+  }
+
+  if (defaultProvider && defaultProvider !== "claude" && defaultProvider !== "codex") {
+    return (
+      <div className="rounded-xl border border-border bg-muted/20 px-6 py-5">
+        <div className="flex gap-3">
+          <AlertCircle className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+          <div>
+            <div className="text-sm font-semibold text-foreground">Skills Not Supported</div>
+            <div className="mt-1 text-sm text-muted-foreground leading-relaxed">
+              {defaultProvider === "antigravity"
+                ? "Antigravity Agent không hỗ trợ cấu hình Custom Skills trên Kanna. Nó sử dụng bộ skill tích hợp sẵn của nó."
+                : `${defaultProvider} Agent không hỗ trợ cấu hình Custom Skills trên Kanna.`}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -2178,8 +2308,10 @@ const PROJECT_CAPABILITIES = [
 
 export function McpSection({
   state,
+  defaultProvider,
 }: {
   state: Pick<KannaState, "activeProjectId" | "sidebarData" | "connectionStatus" | "socket">
+  defaultProvider?: AgentProvider
 }) {
   const projectId = state.activeProjectId
   const activeProject = state.sidebarData.projectGroups.find(p => p.groupKey === projectId)
@@ -2190,6 +2322,11 @@ export function McpSection({
   const [serverName, setServerName] = useState("custom-server")
   const [serverCommand, setServerCommand] = useState("")
   const [serverArgs, setServerArgs] = useState("")
+
+  // Pi-specific states
+  const [piMcpServers, setPiMcpServers] = useState<Record<string, any>>({})
+  const [piMcpLoading, setPiMcpLoading] = useState(false)
+  const [piMcpError, setPiMcpError] = useState<string | null>(null)
 
   const servers = Object.entries(config.mcpServers ?? {})
 
@@ -2217,6 +2354,36 @@ export function McpSection({
       }
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadPiMcp = async () => {
+    if (state.connectionStatus !== "connected") {
+      setPiMcpServers({})
+      return
+    }
+    try {
+      setPiMcpLoading(true)
+      setPiMcpError(null)
+      const result = await state.socket.command<Record<string, any>>({ type: "pi.listMcp" })
+      setPiMcpServers(result)
+    } catch (error) {
+      setPiMcpServers({})
+      setPiMcpError(error instanceof Error ? error.message : "Unable to read Pi MCP config.")
+    } finally {
+      setPiMcpLoading(false)
+    }
+  }
+
+  const openPiMcpDir = async () => {
+    try {
+      await state.socket.command({
+        type: "system.openExternal",
+        localPath: "~/.pi/agent",
+        action: "open_finder",
+      })
+    } catch (err) {
+      console.error(err)
     }
   }
 
@@ -2327,8 +2494,109 @@ export function McpSection({
   }
 
   useEffect(() => {
-    void loadConfig()
-  }, [projectId, state.connectionStatus, state.socket])
+    if (defaultProvider === "pi") {
+      void loadPiMcp()
+    } else if (defaultProvider === "claude" || defaultProvider === "codex" || !defaultProvider) {
+      void loadConfig()
+    }
+  }, [projectId, state.connectionStatus, state.socket, defaultProvider])
+
+  if (defaultProvider === "pi") {
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-6 py-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex gap-3">
+              <AlertCircle className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
+              <div>
+                <div className="text-sm font-semibold text-foreground">Pi Agent Integration</div>
+                <div className="mt-1 text-sm text-muted-foreground leading-relaxed">
+                  Pi Agent tự quản lý các MCP servers của nó. Dưới đây là các công cụ MCP được phát hiện từ cấu hình của Pi.
+                </div>
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={openPiMcpDir}
+              className="shrink-0 gap-1.5"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Open Pi Config Directory
+            </Button>
+          </div>
+        </div>
+
+        <section className="flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-medium text-foreground">Discovered Pi MCP Servers</div>
+            {piMcpLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+          </div>
+          {piMcpError && <div className="text-xs text-destructive">{piMcpError}</div>}
+          {Object.keys(piMcpServers).length > 0 ? (
+            <div className="space-y-4">
+              {Object.entries(piMcpServers).map(([serverName, serverInfo]: [string, any]) => (
+                <div key={serverName} className="rounded-lg border border-border bg-card/20">
+                  <div className="border-b border-border px-3 py-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="text-sm font-semibold text-foreground">{serverName}</div>
+                      <StatusPill tone="good">Active</StatusPill>
+                    </div>
+                    <div className="mt-1 font-mono text-xs text-muted-foreground">
+                      {serverInfo.command} {serverInfo.args?.join(" ")}
+                    </div>
+                  </div>
+                  {serverInfo.tools && serverInfo.tools.length > 0 ? (
+                    <div className="divide-y divide-border">
+                      {serverInfo.tools.map((tool: any) => (
+                        <div key={tool.name} className="flex items-start justify-between gap-4 px-3 py-2.5">
+                          <div className="flex flex-col gap-1 min-w-0 flex-1 sm:grid sm:grid-cols-[200px_1fr] sm:gap-4 sm:items-start">
+                            <code className="truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground self-start" title={tool.name}>
+                              {tool.name}
+                            </code>
+                            <div className="text-xs leading-relaxed text-muted-foreground">
+                              {tool.description}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="px-3 py-3 text-xs text-muted-foreground">
+                      No tools exposed by this server.
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : !piMcpLoading ? (
+            <div className="rounded-lg border border-border bg-card/20 px-3 py-3 text-sm text-muted-foreground">
+              No active MCP servers found in Pi Agent cache configuration.
+            </div>
+          ) : null}
+        </section>
+      </div>
+    )
+  }
+
+  if (defaultProvider && defaultProvider !== "claude" && defaultProvider !== "codex") {
+    return (
+      <div className="rounded-xl border border-border bg-muted/20 px-6 py-5">
+        <div className="flex gap-3">
+          <AlertCircle className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+          <div>
+            <div className="text-sm font-semibold text-foreground">MCP Not Supported</div>
+            <div className="mt-1 text-sm text-muted-foreground leading-relaxed">
+              {defaultProvider === "antigravity"
+                ? "Antigravity Agent không hỗ trợ cấu hình MCP servers trên Kanna. Nó sử dụng bộ công cụ tích hợp sẵn của nó."
+                : `${defaultProvider} Agent không hỗ trợ cấu hình MCP servers trên Kanna.`}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="border-b border-border">
@@ -2660,11 +2928,20 @@ export function SettingsPage() {
   const [customAgentError, setCustomAgentError] = useState<string | null>(null)
   const [customAgentTestResult, setCustomAgentTestResult] = useState<CustomAgentConnectionTestResult | null>(null)
   const [customAgentTesting, setCustomAgentTesting] = useState(false)
+  const [openAgentAccordion, setOpenAgentAccordion] = useState<string | null>(null)
   const updateSnapshot = state.updateSnapshot
   const handleWriteAppSettings = state.handleWriteAppSettings
   const handleReadLlmProvider = state.handleReadLlmProvider
   const handleWriteLlmProvider = state.handleWriteLlmProvider
   const handleValidateLlmProvider = state.handleValidateLlmProvider
+
+  useEffect(() => {
+    if (defaultProvider) {
+      setOpenAgentAccordion(defaultProvider === "antigravity" ? "last_used" : defaultProvider)
+    } else {
+      setOpenAgentAccordion("claude")
+    }
+  }, [defaultProvider])
   const settingsProviderCatalogs = useMemo(() => {
     const providers = piProviderCatalog
       ? PROVIDERS.map((provider) => provider.id === "pi" ? piProviderCatalog : provider)
@@ -2760,12 +3037,12 @@ export function SettingsPage() {
   }, [])
 
   useEffect(() => {
-    if (selectedPage !== "providers" || isConnecting) return
+    if (selectedPage !== "llm" || isConnecting) return
     void handleReadLlmProvider()
   }, [handleReadLlmProvider, isConnecting, selectedPage])
 
   useEffect(() => {
-    if (selectedPage !== "providers" || isConnecting) return
+    if (selectedPage !== "agents" || isConnecting) return
     let cancelled = false
     void state.socket.command<ProviderCatalogEntry>({ type: "settings.readPiProviderCatalog" })
       .then((catalog) => {
@@ -2780,7 +3057,7 @@ export function SettingsPage() {
   }, [isConnecting, selectedPage, state.socket])
 
   useEffect(() => {
-    if (selectedPage !== "providers" || isConnecting) return
+    if (selectedPage !== "agents" || isConnecting) return
     let cancelled = false
     setAgentCliDetectionError(null)
     void state.socket.command<AgentCliDetectionSnapshot>({ type: "settings.detectAgentClis" })
@@ -3535,8 +3812,8 @@ export function SettingsPage() {
                       </SettingsRow>
                     </div>
                   </>
-                ) : selectedPage === "providers" ? (
-                  <div className="border-b border-border">
+                ) : selectedPage === "agents" ? (
+                  <div className="border-b border-border space-y-6">
                     <SettingsRow
                       title="Default Provider"
                       description="The default harness used for new chats before a provider is locked by an existing session."
@@ -3564,118 +3841,153 @@ export function SettingsPage() {
                       </Select>
                     </SettingsRow>
 
-                    <SettingsRow
-                      title="Claude Code Defaults"
-                      description="Saved defaults when using Claude Code."
-                      alignStart
-                    >
-                      <div className="flex max-w-[420px] flex-col gap-3">
-                        <div>
-                          <AgentCliDetectionPill agent={agentCliDetectionByProvider.get("claude")} />
-                        </div>
-                        <ChatPreferenceControls
-                          availableProviders={settingsProviderCatalogs}
-                          selectedProvider="claude"
-                          showProviderPicker={false}
-                          providerLocked
-                          model={providerDefaults.claude.model}
-                          modelOptions={providerDefaults.claude.modelOptions}
-                          onModelChange={(_, model) => {
-                            handleProviderDefaultModelChange("claude", model)
-                          }}
-                          onModelOptionChange={(change) => {
-                            if (change.type === "claudeReasoningEffort") {
-                              handleProviderDefaultModelOptionsChange("claude", { reasoningEffort: change.effort })
-                            } else if (change.type === "contextWindow") {
-                              handleProviderDefaultModelOptionsChange("claude", { contextWindow: change.contextWindow })
-                            }
-                          }}
-                          planMode={providerDefaults.claude.planMode}
-                          onPlanModeChange={(planMode) => handleProviderDefaultPlanModeChange("claude", planMode)}
-                          includePlanMode
-                          className="justify-start flex-wrap"
-                        />
-                      </div>
-                    </SettingsRow>
-
-                    <SettingsRow
-                      title="Codex Defaults"
-                      description="Saved defaults when using Codex."
-                      alignStart
-                    >
-                      <div className="flex max-w-[420px] flex-col gap-3">
-                        <div>
-                          <AgentCliDetectionPill agent={agentCliDetectionByProvider.get("codex")} />
-                        </div>
-                        <ChatPreferenceControls
-                          availableProviders={settingsProviderCatalogs}
-                          selectedProvider="codex"
-                          showProviderPicker={false}
-                          providerLocked
-                          model={providerDefaults.codex.model}
-                          modelOptions={providerDefaults.codex.modelOptions}
-                          onModelChange={(_, model) => {
-                            handleProviderDefaultModelChange("codex", model)
-                          }}
-                          onModelOptionChange={(change) => {
-                            if (change.type === "codexReasoningEffort") {
-                              handleProviderDefaultModelOptionsChange("codex", { reasoningEffort: change.effort })
-                            } else if (change.type === "fastMode") {
-                              handleProviderDefaultModelOptionsChange("codex", { fastMode: change.fastMode })
-                            }
-                          }}
-                          planMode={providerDefaults.codex.planMode}
-                          onPlanModeChange={(planMode) => handleProviderDefaultPlanModeChange("codex", planMode)}
-                          includePlanMode
-                          className="justify-start flex-wrap"
-                        />
-                      </div>
-                    </SettingsRow>
-
-                    <SettingsRow
-                      title="Antigravity Defaults"
-                      description="Antigravity is temporarily disabled due to agent stability issues."
-                      alignStart
-                    >
-                      <div className="flex max-w-[420px] flex-col gap-3">
-                        <div className="flex flex-wrap gap-2">
-                          <StatusPill tone="neutral">Disabled</StatusPill>
-                          <AgentCliDetectionPill agent={agentCliDetectionByProvider.get("antigravity")} />
-                        </div>
-                      </div>
-                    </SettingsRow>
-
-                    <SettingsRow
-                      title="Pi Agent Defaults"
-                      description="Saved defaults when using Pi Agent."
-                      alignStart
-                    >
-                      <div className="flex max-w-[420px] flex-col gap-3">
-                        <div>
-                          <AgentCliDetectionPill agent={agentCliDetectionByProvider.get("pi")} />
-                        </div>
-                        <ChatPreferenceControls
-                          availableProviders={settingsProviderCatalogs}
-                          selectedProvider="pi"
-                          showProviderPicker={false}
-                          providerLocked
-                          model={providerDefaults.pi.model}
-                          modelOptions={providerDefaults.pi.modelOptions}
-                          onModelChange={(_, model) => {
-                            handleProviderDefaultModelChange("pi", model)
-                          }}
-                          onModelOptionChange={(change) => {
-                            if (change.type === "piReasoningEffort") {
-                              handleProviderDefaultModelOptionsChange("pi", { reasoningEffort: change.effort as any })
-                            }
-                          }}
-                          planMode={providerDefaults.pi.planMode}
-                          onPlanModeChange={(planMode) => handleProviderDefaultPlanModeChange("pi", planMode)}
-                          includePlanMode
-                          className="justify-start flex-wrap"
-                        />
-                      </div>
-                    </SettingsRow>
+                    <div className="space-y-3">
+                      <div className="text-sm font-semibold text-foreground">Agent Configurations</div>
+                      {[
+                        {
+                          id: "claude",
+                          label: "Claude Code",
+                          tools: ["read_file", "write_file", "run_command", "grep_search"],
+                          renderContent: () => (
+                            <div className="p-4 border-t border-border bg-card/10 space-y-4">
+                              <div>
+                                <AgentCliDetectionPill agent={agentCliDetectionByProvider.get("claude")} />
+                              </div>
+                              <ChatPreferenceControls
+                                availableProviders={settingsProviderCatalogs}
+                                selectedProvider="claude"
+                                showProviderPicker={false}
+                                providerLocked
+                                model={providerDefaults.claude.model}
+                                modelOptions={providerDefaults.claude.modelOptions}
+                                onModelChange={(_, model) => {
+                                  handleProviderDefaultModelChange("claude", model)
+                                }}
+                                onModelOptionChange={(change) => {
+                                  if (change.type === "claudeReasoningEffort") {
+                                    handleProviderDefaultModelOptionsChange("claude", { reasoningEffort: change.effort })
+                                  } else if (change.type === "contextWindow") {
+                                    handleProviderDefaultModelOptionsChange("claude", { contextWindow: change.contextWindow })
+                                  }
+                                }}
+                                planMode={providerDefaults.claude.planMode}
+                                onPlanModeChange={(planMode) => handleProviderDefaultPlanModeChange("claude", planMode)}
+                                includePlanMode
+                                className="justify-start flex-wrap"
+                              />
+                            </div>
+                          )
+                        },
+                        {
+                          id: "codex",
+                          label: "Codex",
+                          tools: ["web_search", "text_summarize"],
+                          renderContent: () => (
+                            <div className="p-4 border-t border-border bg-card/10 space-y-4">
+                              <div>
+                                <AgentCliDetectionPill agent={agentCliDetectionByProvider.get("codex")} />
+                              </div>
+                              <ChatPreferenceControls
+                                availableProviders={settingsProviderCatalogs}
+                                selectedProvider="codex"
+                                showProviderPicker={false}
+                                providerLocked
+                                model={providerDefaults.codex.model}
+                                modelOptions={providerDefaults.codex.modelOptions}
+                                onModelChange={(_, model) => {
+                                  handleProviderDefaultModelChange("codex", model)
+                                }}
+                                onModelOptionChange={(change) => {
+                                  if (change.type === "codexReasoningEffort") {
+                                    handleProviderDefaultModelOptionsChange("codex", { reasoningEffort: change.effort })
+                                  } else if (change.type === "fastMode") {
+                                    handleProviderDefaultModelOptionsChange("codex", { fastMode: change.fastMode })
+                                  }
+                                }}
+                                planMode={providerDefaults.codex.planMode}
+                                onPlanModeChange={(planMode) => handleProviderDefaultPlanModeChange("codex", planMode)}
+                                includePlanMode
+                                className="justify-start flex-wrap"
+                              />
+                            </div>
+                          )
+                        },
+                        {
+                          id: "antigravity",
+                          label: "Antigravity",
+                          tools: ["code_analysis", "run_experiment"],
+                          renderContent: () => (
+                            <div className="p-4 border-t border-border bg-card/10 space-y-4">
+                              <div className="flex flex-wrap gap-2">
+                                <StatusPill tone="neutral">Disabled</StatusPill>
+                                <AgentCliDetectionPill agent={agentCliDetectionByProvider.get("antigravity")} />
+                              </div>
+                              <p className="text-xs text-muted-foreground leading-relaxed">
+                                Antigravity is temporarily disabled due to agent stability issues.
+                              </p>
+                            </div>
+                          )
+                        },
+                        {
+                          id: "pi",
+                          label: "Pi Agent",
+                          tools: ["list_skills", "list_mcp_servers"],
+                          renderContent: () => (
+                            <div className="p-4 border-t border-border bg-card/10 space-y-4">
+                              <div>
+                                <AgentCliDetectionPill agent={agentCliDetectionByProvider.get("pi")} />
+                              </div>
+                              <ChatPreferenceControls
+                                availableProviders={settingsProviderCatalogs}
+                                selectedProvider="pi"
+                                showProviderPicker={false}
+                                providerLocked
+                                model={providerDefaults.pi.model}
+                                modelOptions={providerDefaults.pi.modelOptions}
+                                onModelChange={(_, model) => {
+                                  handleProviderDefaultModelChange("pi", model)
+                                }}
+                                onModelOptionChange={(change) => {
+                                  if (change.type === "piReasoningEffort") {
+                                    handleProviderDefaultModelOptionsChange("pi", { reasoningEffort: change.effort as any })
+                                  }
+                                }}
+                                planMode={providerDefaults.pi.planMode}
+                                onPlanModeChange={(planMode) => handleProviderDefaultPlanModeChange("pi", planMode)}
+                                includePlanMode
+                                className="justify-start flex-wrap"
+                              />
+                            </div>
+                          )
+                        }
+                      ].map((agent) => {
+                        const isOpen = openAgentAccordion === agent.id
+                        const isDefault = defaultProvider === agent.id
+                        return (
+                          <div key={agent.id} className="rounded-lg border border-border overflow-hidden">
+                            <button
+                              type="button"
+                              onClick={() => setOpenAgentAccordion(isOpen ? null : agent.id)}
+                              className="w-full flex items-center justify-between p-4 bg-muted/5 hover:bg-muted/10 text-left transition-colors"
+                            >
+                              <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3 min-w-0">
+                                <span className="text-sm font-semibold text-foreground">{agent.label}</span>
+                                {isDefault && <StatusPill tone="good">Default</StatusPill>}
+                                <div className="flex flex-wrap gap-1">
+                                  {agent.tools.map((t) => (
+                                    <code key={t} className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
+                                      {t}
+                                    </code>
+                                  ))}
+                                </div>
+                              </div>
+                              <span className="text-muted-foreground text-xs pr-1">{isOpen ? "▲" : "▼"}</span>
+                            </button>
+                            {isOpen && agent.renderContent()}
+                          </div>
+                        )
+                      })}
+                    </div>
 
                     {agentCliDetectionError ? (
                       <SettingsRow
@@ -3716,10 +4028,25 @@ export function SettingsPage() {
                         )}
                       </div>
                     </SettingsRow>
+                  </div>
+                ) : selectedPage === "llm" ? (
+                  <div className="border-b border-border space-y-6">
+                    <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-6 py-5">
+                      <div className="flex gap-3">
+                        <AlertCircle className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
+                        <div>
+                          <div className="text-sm font-semibold text-foreground">Quick Response SDK Fallback Mechanism</div>
+                          <div className="mt-1 text-sm text-muted-foreground leading-relaxed">
+                            Quick Response SDK được sử dụng cho các tác vụ phụ trợ (như tóm tắt chat, tạo tiêu đề phiên chat, hoặc gợi ý code nhanh). Nếu không cấu hình thông tin kết nối dưới đây, hệ thống sẽ tự động fallback sang Claude Haiku hoặc Codex GPT-5.4 Mini để đảm bảo trải nghiệm liền mạch.
+                          </div>
+                        </div>
+                      </div>
+                    </div>
 
                     <SettingsRow
                       title="Quick Response SDK"
                       description={llmValidationDescription}
+                      bordered={false}
                       alignStart
                     >
                       <div className="flex w-full max-w-[420px] flex-col gap-3">
@@ -3840,11 +4167,11 @@ export function SettingsPage() {
                     })}
                   </div>
                 ) : selectedPage === "skills" ? (
-                  <SkillsSection state={state} />
+                  <SkillsSection state={state} defaultProvider={defaultProvider} />
                 ) : selectedPage === "workflow" ? (
                   <WorkflowSection state={state} />
                 ) : selectedPage === "mcp" ? (
-                  <McpSection state={state} />
+                  <McpSection state={state} defaultProvider={defaultProvider} />
                 ) : (
                   <ChangelogSection
                     status={changelogStatus}

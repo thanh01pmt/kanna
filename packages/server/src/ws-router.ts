@@ -1989,6 +1989,31 @@ export function createWsRouter({
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           return
         }
+        case "pi.listSkills": {
+          try {
+            const piSkillsDir = path.join(os.homedir(), ".pi", "agent", "skills")
+            const entries = await readdir(piSkillsDir, { withFileTypes: true })
+            const skills = entries
+              .filter((entry) => entry.isDirectory())
+              .map((entry) => entry.name)
+            send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: skills })
+          } catch (err) {
+            send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: [] })
+          }
+          return
+        }
+        case "pi.listMcp": {
+          try {
+            const mcpCachePath = path.join(os.homedir(), ".pi", "agent", "mcp-cache.json")
+            const content = await readFile(mcpCachePath, "utf8")
+            const parsed = JSON.parse(content)
+            const result = parsed.servers || {}
+            send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
+          } catch (err) {
+            send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: {} })
+          }
+          return
+        }
         case "project.open": {
           await ensureProjectDirectory(command.localPath)
           const normalizedPath = resolveLocalPath(command.localPath)
