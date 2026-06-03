@@ -794,6 +794,12 @@ export function SkillsSection({
   }, [connectionStatus, query, socket, defaultProvider])
 
   if (defaultProvider === "pi") {
+    const skillCount = piSkills.length
+    const tokenBloat = skillCount * 400
+    const tokenSeverity = tokenBloat > 3000 ? "high" : tokenBloat > 1200 ? "medium" : "low"
+    const severityText = tokenSeverity === "high" ? "High Context Bloat" : tokenSeverity === "medium" ? "Moderate Context Bloat" : "Optimal Context Usage"
+    const severityColor = tokenSeverity === "high" ? "text-red-500 bg-red-500/10 border-red-500/20" : tokenSeverity === "medium" ? "text-amber-500 bg-amber-500/10 border-amber-500/20" : "text-emerald-500 bg-emerald-500/10 border-emerald-500/20"
+
     return (
       <div className="flex flex-col gap-6">
         <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-6 py-5">
@@ -820,6 +826,56 @@ export function SkillsSection({
           </div>
         </div>
 
+        {/* Telemetry/Stats Panel */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="rounded-xl border border-border bg-card/40 p-4 flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground font-sans">Total Skills</span>
+              <BookText className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold tracking-tight text-foreground">{skillCount}</span>
+              <span className="text-xs text-muted-foreground font-sans">local skills</span>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border bg-card/40 p-4 flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground font-sans">Status Distribution</span>
+              <div className="flex gap-1">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                <span className="h-2 w-2 rounded-full bg-muted" />
+              </div>
+            </div>
+            <div className="mt-2 flex flex-col gap-1">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground font-sans">Enabled</span>
+                <span className="font-semibold text-emerald-500">{skillCount}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground font-sans">Disabled</span>
+                <span className="font-semibold text-muted-foreground">0</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border bg-card/40 p-4 flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground font-sans">Est. Token Bloat</span>
+              <Cpu className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div className="mt-2">
+              <div className="flex items-baseline gap-1">
+                <span className="text-2xl font-bold tracking-tight text-foreground">~{tokenBloat}</span>
+                <span className="text-[10px] text-muted-foreground font-sans">tokens</span>
+              </div>
+              <span className={cn("inline-flex items-center mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium border font-sans", severityColor)}>
+                {severityText}
+              </span>
+            </div>
+          </div>
+        </div>
+
         <section className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <div className="text-sm font-medium text-foreground">Discovered Pi Skills</div>
@@ -829,12 +885,17 @@ export function SkillsSection({
           {piSkills.length > 0 ? (
             <div className="grid gap-3 md:grid-cols-2">
               {piSkills.map((skillName) => (
-                <div key={skillName} className="flex items-center gap-3 rounded-lg border border-border bg-card/30 p-3">
-                  <BookText className="h-4 w-4 text-blue-500 shrink-0" />
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-foreground">{skillName}</div>
-                    <div className="truncate text-xs text-muted-foreground">Local Pi Skill</div>
+                <div key={skillName} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card/30 p-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <BookText className="h-4 w-4 text-blue-500 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-foreground">{skillName}</div>
+                      <div className="truncate text-xs text-muted-foreground">Local Pi Skill</div>
+                    </div>
                   </div>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-medium border border-emerald-500/20 bg-emerald-500/10 text-emerald-500 shrink-0">
+                    Enabled
+                  </span>
                 </div>
               ))}
             </div>
@@ -866,35 +927,96 @@ export function SkillsSection({
     )
   }
 
+  const skillCount = installedSkills.length
+  const tokenBloat = skillCount * 400
+  const tokenSeverity = tokenBloat > 3000 ? "high" : tokenBloat > 1200 ? "medium" : "low"
+  const severityText = tokenSeverity === "high" ? "High Context Bloat" : tokenSeverity === "medium" ? "Moderate Context Bloat" : "Optimal Context Usage"
+  const severityColor = tokenSeverity === "high" ? "text-red-500 bg-red-500/10 border-red-500/20" : tokenSeverity === "medium" ? "text-amber-500 bg-amber-500/10 border-amber-500/20" : "text-emerald-500 bg-emerald-500/10 border-emerald-500/20"
+
   return (
     <div className="flex flex-col gap-6">
       {operationError ? <SkillErrorBlock message={operationError} /> : null}
+
+      {/* Telemetry/Stats Panel */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="rounded-xl border border-border bg-card/40 p-4 flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-muted-foreground font-sans">Total Skills</span>
+            <BookText className="h-4 w-4 text-muted-foreground" />
+          </div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold tracking-tight text-foreground">{skillCount}</span>
+            <span className="text-xs text-muted-foreground font-sans">global skills</span>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border bg-card/40 p-4 flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-muted-foreground font-sans">Status Distribution</span>
+            <div className="flex gap-1">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              <span className="h-2 w-2 rounded-full bg-muted" />
+            </div>
+          </div>
+          <div className="mt-2 flex flex-col gap-1">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground font-sans">Enabled</span>
+              <span className="font-semibold text-emerald-500">{skillCount}</span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground font-sans">Disabled</span>
+              <span className="font-semibold text-muted-foreground">0</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border bg-card/40 p-4 flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-muted-foreground font-sans">Est. Token Bloat</span>
+            <Cpu className="h-4 w-4 text-muted-foreground" />
+          </div>
+          <div className="mt-2">
+            <div className="flex items-baseline gap-1">
+              <span className="text-2xl font-bold tracking-tight text-foreground">~{tokenBloat}</span>
+              <span className="text-[10px] text-muted-foreground font-sans">tokens</span>
+            </div>
+            <span className={cn("inline-flex items-center mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium border font-sans", severityColor)}>
+              {severityText}
+            </span>
+          </div>
+        </div>
+      </div>
+
       <section className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-3">
-          <div className="text-sm font-medium text-foreground">Installed</div>
+          <div className="text-sm font-medium text-foreground font-sans">Installed</div>
           {installedLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /> : null}
         </div>
         {installedError ? <div className="text-xs text-destructive">{installedError}</div> : null}
         {installedSkills.length > 0 ? (
           <div className="grid gap-3 md:grid-cols-2">
             {installedSkills.map((skill) => (
-              <InstalledSkillCard
-                key={`${skill.source}/${skill.name}`}
-                skill={skill}
-                uninstalling={uninstallingSkillId === skill.name}
-                onUninstall={() => { void uninstallSkill(skill) }}
-              />
+              <div key={`${skill.source}/${skill.name}`} className="relative group">
+                <InstalledSkillCard
+                  skill={skill}
+                  uninstalling={uninstallingSkillId === skill.name}
+                  onUninstall={() => { void uninstallSkill(skill) }}
+                />
+                <span className="absolute top-3 right-12 px-2 py-0.5 rounded-full text-[10px] font-medium border border-emerald-500/20 bg-emerald-500/10 text-emerald-500">
+                  Enabled
+                </span>
+              </div>
             ))}
           </div>
         ) : !installedLoading ? (
-          <div className="rounded-lg border border-border bg-card/30 p-3 text-sm text-muted-foreground">
+          <div className="rounded-lg border border-border bg-card/30 p-3 text-sm text-muted-foreground font-sans">
             No global skills installed.
           </div>
         ) : null}
       </section>
 
       <section className="flex flex-col gap-3">
-        <div className="text-sm font-medium text-foreground">Discover</div>
+        <div className="text-sm font-medium text-foreground font-sans">Discover</div>
         <div className="flex h-10 items-center gap-2 rounded-lg border border-border bg-card/30 px-3">
           <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
           <input
@@ -931,7 +1053,7 @@ export function SkillsSection({
           ))}
         </div>
         {!searchLoading && !searchError && query.trim().length >= 2 && results.length === 0 ? (
-          <div className="rounded-lg border border-border bg-card/30 p-3 text-sm text-muted-foreground">
+          <div className="rounded-lg border border-border bg-card/30 p-3 text-sm text-muted-foreground font-sans">
             No skills found.
           </div>
         ) : null}
@@ -2502,6 +2624,12 @@ export function McpSection({
   }, [projectId, state.connectionStatus, state.socket, defaultProvider])
 
   if (defaultProvider === "pi") {
+    const totalTools = Object.values(piMcpServers).reduce((acc, serverInfo: any) => acc + (serverInfo.tools?.length ?? 0), 0)
+    const tokenBloat = totalTools * 350
+    const tokenSeverity = tokenBloat > 3000 ? "high" : tokenBloat > 1200 ? "medium" : "low"
+    const severityText = tokenSeverity === "high" ? "High Context Bloat" : tokenSeverity === "medium" ? "Moderate Context Bloat" : "Optimal Context Usage"
+    const severityColor = tokenSeverity === "high" ? "text-red-500 bg-red-500/10 border-red-500/20" : tokenSeverity === "medium" ? "text-amber-500 bg-amber-500/10 border-amber-500/20" : "text-emerald-500 bg-emerald-500/10 border-emerald-500/20"
+
     return (
       <div className="flex flex-col gap-6">
         <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-6 py-5">
@@ -2525,6 +2653,56 @@ export function McpSection({
               <ExternalLink className="h-3.5 w-3.5" />
               Open Pi Config Directory
             </Button>
+          </div>
+        </div>
+
+        {/* Telemetry/Stats Panel */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="rounded-xl border border-border bg-card/40 p-4 flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground font-sans">Total MCP Tools</span>
+              <GitBranch className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold tracking-tight text-foreground">{totalTools}</span>
+              <span className="text-xs text-muted-foreground font-sans">discovered tools</span>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border bg-card/40 p-4 flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground font-sans">Status Distribution</span>
+              <div className="flex gap-1">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                <span className="h-2 w-2 rounded-full bg-muted" />
+              </div>
+            </div>
+            <div className="mt-2 flex flex-col gap-1">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground font-sans">Enabled</span>
+                <span className="font-semibold text-emerald-500">{totalTools}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground font-sans">Disabled</span>
+                <span className="font-semibold text-muted-foreground">0</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border bg-card/40 p-4 flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground font-sans">Est. Token Bloat</span>
+              <Cpu className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div className="mt-2">
+              <div className="flex items-baseline gap-1">
+                <span className="text-2xl font-bold tracking-tight text-foreground">~{tokenBloat}</span>
+                <span className="text-[10px] text-muted-foreground font-sans">tokens</span>
+              </div>
+              <span className={cn("inline-flex items-center mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium border font-sans", severityColor)}>
+                {severityText}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -2559,6 +2737,9 @@ export function McpSection({
                               {tool.description}
                             </div>
                           </div>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-medium border border-emerald-500/20 bg-emerald-500/10 text-emerald-500 shrink-0">
+                            Enabled
+                          </span>
                         </div>
                       ))}
                     </div>
@@ -2598,8 +2779,71 @@ export function McpSection({
     )
   }
 
+  const isMcpCapabilityEnabled = config.capabilities?.mcp !== false
+  const isWorkflowCapabilityEnabled = config.capabilities?.workflow !== false
+  const isServerEffectivelyEnabled = isMcpCapabilityEnabled && isWorkflowCapabilityEnabled
+  const toolNames = KANNA_MCP_TOOLS.map((tool) => tool.name)
+  const enabledToolsCount = isServerEffectivelyEnabled
+    ? toolNames.filter((toolName) => config.tools?.["kanna-workflow"]?.[toolName] !== false).length
+    : 0
+  const disabledToolsCount = toolNames.length - enabledToolsCount
+  const tokenBloat = enabledToolsCount * 350
+  const tokenSeverity = tokenBloat > 3000 ? "high" : tokenBloat > 1200 ? "medium" : "low"
+  const severityText = tokenSeverity === "high" ? "High Context Bloat" : tokenSeverity === "medium" ? "Moderate Context Bloat" : "Optimal Context Usage"
+  const severityColor = tokenSeverity === "high" ? "text-red-500 bg-red-500/10 border-red-500/20" : tokenSeverity === "medium" ? "text-amber-500 bg-amber-500/10 border-amber-500/20" : "text-emerald-500 bg-emerald-500/10 border-emerald-500/20"
+
   return (
     <div className="border-b border-border">
+      {/* Telemetry/Stats Panel */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div className="rounded-xl border border-border bg-card/40 p-4 flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-muted-foreground font-sans">Total MCP Tools</span>
+            <GitBranch className="h-4 w-4 text-muted-foreground" />
+          </div>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-2xl font-bold tracking-tight text-foreground">{toolNames.length}</span>
+            <span className="text-xs text-muted-foreground font-sans">kanna-workflow tools</span>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border bg-card/40 p-4 flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-muted-foreground font-sans">Status Distribution</span>
+            <div className="flex gap-1">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              <span className="h-2 w-2 rounded-full bg-muted" />
+            </div>
+          </div>
+          <div className="mt-2 flex flex-col gap-1">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground font-sans">Enabled</span>
+              <span className="font-semibold text-emerald-500">{enabledToolsCount}</span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground font-sans">Disabled</span>
+              <span className="font-semibold text-muted-foreground">{disabledToolsCount}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border bg-card/40 p-4 flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-muted-foreground font-sans">Est. Token Bloat</span>
+            <Cpu className="h-4 w-4 text-muted-foreground" />
+          </div>
+          <div className="mt-2">
+            <div className="flex items-baseline gap-1">
+              <span className="text-2xl font-bold tracking-tight text-foreground">~{tokenBloat}</span>
+              <span className="text-[10px] text-muted-foreground font-sans">tokens</span>
+            </div>
+            <span className={cn("inline-flex items-center mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium border font-sans", severityColor)}>
+              {severityText}
+            </span>
+          </div>
+        </div>
+      </div>
+
       <SettingsRow
         title="Local MCP Server"
         description="Kanna exposes workflow operations through a local stdio MCP server for MCP-capable agents and editors."
@@ -2786,9 +3030,19 @@ export function McpSection({
                             !isEnabled && "bg-muted/20"
                           )}>
                             <div className="flex flex-col gap-1 min-w-0 flex-1 sm:grid sm:grid-cols-[200px_1fr] sm:gap-4 sm:items-start">
-                              <code className="truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground self-start" title={tool.name}>
-                                {tool.name}
-                              </code>
+                              <div className="flex items-center gap-2 self-start min-w-0">
+                                <code className="truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground" title={tool.name}>
+                                  {tool.name}
+                                </code>
+                                <span className={cn(
+                                  "px-2 py-0.5 rounded-full text-[10px] font-medium border shrink-0",
+                                  isEnabled 
+                                    ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-500" 
+                                    : "border-muted/40 bg-muted/20 text-muted-foreground"
+                                )}>
+                                  {isEnabled ? "Enabled" : "Disabled"}
+                                </span>
+                              </div>
                               <div className="text-xs leading-relaxed text-muted-foreground">
                                 {tool.description}
                               </div>
@@ -2929,6 +3183,17 @@ export function SettingsPage() {
   const [customAgentTestResult, setCustomAgentTestResult] = useState<CustomAgentConnectionTestResult | null>(null)
   const [customAgentTesting, setCustomAgentTesting] = useState(false)
   const [openAgentAccordion, setOpenAgentAccordion] = useState<string | null>(null)
+  const openExternalPath = async (pathStr: string) => {
+    try {
+      await state.socket.command({
+        type: "system.openExternal",
+        localPath: pathStr,
+        action: "open_finder",
+      })
+    } catch (err) {
+      console.error(err)
+    }
+  }
   const updateSnapshot = state.updateSnapshot
   const handleWriteAppSettings = state.handleWriteAppSettings
   const handleReadLlmProvider = state.handleReadLlmProvider
@@ -3843,150 +4108,266 @@ export function SettingsPage() {
 
                     <div className="space-y-3">
                       <div className="text-sm font-semibold text-foreground">Agent Configurations</div>
-                      {[
-                        {
-                          id: "claude",
-                          label: "Claude Code",
-                          tools: ["read_file", "write_file", "run_command", "grep_search"],
-                          renderContent: () => (
-                            <div className="p-4 border-t border-border bg-card/10 space-y-4">
-                              <div>
-                                <AgentCliDetectionPill agent={agentCliDetectionByProvider.get("claude")} />
-                              </div>
-                              <ChatPreferenceControls
-                                availableProviders={settingsProviderCatalogs}
-                                selectedProvider="claude"
-                                showProviderPicker={false}
-                                providerLocked
-                                model={providerDefaults.claude.model}
-                                modelOptions={providerDefaults.claude.modelOptions}
-                                onModelChange={(_, model) => {
-                                  handleProviderDefaultModelChange("claude", model)
-                                }}
-                                onModelOptionChange={(change) => {
-                                  if (change.type === "claudeReasoningEffort") {
-                                    handleProviderDefaultModelOptionsChange("claude", { reasoningEffort: change.effort })
-                                  } else if (change.type === "contextWindow") {
-                                    handleProviderDefaultModelOptionsChange("claude", { contextWindow: change.contextWindow })
-                                  }
-                                }}
-                                planMode={providerDefaults.claude.planMode}
-                                onPlanModeChange={(planMode) => handleProviderDefaultPlanModeChange("claude", planMode)}
-                                includePlanMode
-                                className="justify-start flex-wrap"
-                              />
-                            </div>
-                          )
-                        },
-                        {
-                          id: "codex",
-                          label: "Codex",
-                          tools: ["web_search", "text_summarize"],
-                          renderContent: () => (
-                            <div className="p-4 border-t border-border bg-card/10 space-y-4">
-                              <div>
-                                <AgentCliDetectionPill agent={agentCliDetectionByProvider.get("codex")} />
-                              </div>
-                              <ChatPreferenceControls
-                                availableProviders={settingsProviderCatalogs}
-                                selectedProvider="codex"
-                                showProviderPicker={false}
-                                providerLocked
-                                model={providerDefaults.codex.model}
-                                modelOptions={providerDefaults.codex.modelOptions}
-                                onModelChange={(_, model) => {
-                                  handleProviderDefaultModelChange("codex", model)
-                                }}
-                                onModelOptionChange={(change) => {
-                                  if (change.type === "codexReasoningEffort") {
-                                    handleProviderDefaultModelOptionsChange("codex", { reasoningEffort: change.effort })
-                                  } else if (change.type === "fastMode") {
-                                    handleProviderDefaultModelOptionsChange("codex", { fastMode: change.fastMode })
-                                  }
-                                }}
-                                planMode={providerDefaults.codex.planMode}
-                                onPlanModeChange={(planMode) => handleProviderDefaultPlanModeChange("codex", planMode)}
-                                includePlanMode
-                                className="justify-start flex-wrap"
-                              />
-                            </div>
-                          )
-                        },
-                        {
-                          id: "antigravity",
-                          label: "Antigravity",
-                          tools: ["code_analysis", "run_experiment"],
-                          renderContent: () => (
-                            <div className="p-4 border-t border-border bg-card/10 space-y-4">
-                              <div className="flex flex-wrap gap-2">
-                                <StatusPill tone="neutral">Disabled</StatusPill>
-                                <AgentCliDetectionPill agent={agentCliDetectionByProvider.get("antigravity")} />
-                              </div>
-                              <p className="text-xs text-muted-foreground leading-relaxed">
-                                Antigravity is temporarily disabled due to agent stability issues.
-                              </p>
-                            </div>
-                          )
-                        },
-                        {
-                          id: "pi",
-                          label: "Pi Agent",
-                          tools: ["list_skills", "list_mcp_servers"],
-                          renderContent: () => (
-                            <div className="p-4 border-t border-border bg-card/10 space-y-4">
-                              <div>
-                                <AgentCliDetectionPill agent={agentCliDetectionByProvider.get("pi")} />
-                              </div>
-                              <ChatPreferenceControls
-                                availableProviders={settingsProviderCatalogs}
-                                selectedProvider="pi"
-                                showProviderPicker={false}
-                                providerLocked
-                                model={providerDefaults.pi.model}
-                                modelOptions={providerDefaults.pi.modelOptions}
-                                onModelChange={(_, model) => {
-                                  handleProviderDefaultModelChange("pi", model)
-                                }}
-                                onModelOptionChange={(change) => {
-                                  if (change.type === "piReasoningEffort") {
-                                    handleProviderDefaultModelOptionsChange("pi", { reasoningEffort: change.effort as any })
-                                  }
-                                }}
-                                planMode={providerDefaults.pi.planMode}
-                                onPlanModeChange={(planMode) => handleProviderDefaultPlanModeChange("pi", planMode)}
-                                includePlanMode
-                                className="justify-start flex-wrap"
-                              />
-                            </div>
-                          )
-                        }
-                      ].map((agent) => {
-                        const isOpen = openAgentAccordion === agent.id
-                        const isDefault = defaultProvider === agent.id
-                        return (
-                          <div key={agent.id} className="rounded-lg border border-border overflow-hidden">
-                            <button
-                              type="button"
-                              onClick={() => setOpenAgentAccordion(isOpen ? null : agent.id)}
-                              className="w-full flex items-center justify-between p-4 bg-muted/5 hover:bg-muted/10 text-left transition-colors"
-                            >
-                              <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3 min-w-0">
-                                <span className="text-sm font-semibold text-foreground">{agent.label}</span>
-                                {isDefault && <StatusPill tone="good">Default</StatusPill>}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 rounded-xl border border-border p-4 bg-muted/5">
+                        {/* Cột trái: Danh sách Agent */}
+                        <div className="flex flex-col gap-2 md:col-span-1 border-b md:border-b-0 md:border-r border-border/50 pb-4 md:pb-0 md:pr-4">
+                          {[
+                            { id: "claude", label: "Claude Code", tools: ["read_file", "write_file", "run_command", "grep_search"] },
+                            { id: "codex", label: "Codex", tools: ["web_search", "text_summarize"] },
+                            { id: "antigravity", label: "Antigravity", tools: ["code_analysis", "run_experiment"] },
+                            { id: "pi", label: "Pi Agent", tools: ["list_skills", "list_mcp_servers"] }
+                          ].map((agent) => {
+                            const isSelected = openAgentAccordion === agent.id
+                            const isDefault = defaultProvider === agent.id
+                            
+                            return (
+                              <button
+                                key={agent.id}
+                                type="button"
+                                onClick={() => setOpenAgentAccordion(agent.id)}
+                                className={`w-full flex flex-col items-start gap-1.5 p-3 rounded-lg text-left transition-colors border ${
+                                  isSelected 
+                                    ? "bg-primary/5 border-primary/20 text-primary-foreground" 
+                                    : "hover:bg-muted/10 border-transparent text-muted-foreground hover:text-foreground"
+                                }`}
+                              >
+                                <div className="flex w-full items-center justify-between gap-2">
+                                  <span className="text-sm font-semibold text-foreground">{agent.label}</span>
+                                  {isDefault && <StatusPill tone="good">Default</StatusPill>}
+                                </div>
                                 <div className="flex flex-wrap gap-1">
                                   {agent.tools.map((t) => (
-                                    <code key={t} className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
+                                    <code key={t} className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-mono text-muted-foreground">
                                       {t}
                                     </code>
                                   ))}
                                 </div>
+                              </button>
+                            )
+                          })}
+                        </div>
+
+                        <div className="md:col-span-2 min-h-[180px] flex flex-col justify-start">
+                          {openAgentAccordion === "claude" && (
+                            <div className="space-y-5 text-sm">
+                              <div className="flex items-center justify-between border-b border-border/50 pb-2">
+                                <h4 className="text-sm font-semibold text-foreground">Claude Code Configuration</h4>
+                                <AgentCliDetectionPill agent={agentCliDetectionByProvider.get("claude")} />
                               </div>
-                              <span className="text-muted-foreground text-xs pr-1">{isOpen ? "▲" : "▼"}</span>
-                            </button>
-                            {isOpen && agent.renderContent()}
-                          </div>
-                        )
-                      })}
+
+                              <div className="text-muted-foreground text-xs leading-relaxed">
+                                Claude Code là agent CLI chạy trực tiếp trong terminal của bạn. Kanna tích hợp Claude Code để cung cấp giao diện quản lý tệp tin trực quan, theo dõi ngữ cảnh dự án và lưu trữ phiên hội thoại bền vững.
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-xl border border-border/60 p-3 bg-muted/10">
+                                <div className="min-w-0">
+                                  <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-1">CLI Executable</div>
+                                  <div className="font-mono text-xs text-foreground truncate select-all" title={agentCliDetectionByProvider.get("claude")?.commandPath || ""}>
+                                    {agentCliDetectionByProvider.get("claude")?.commandPath || "claude (global npm package)"}
+                                  </div>
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-1">Configuration Directory</div>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="font-mono text-xs text-foreground truncate select-all">~/.claudecode/</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => void openExternalPath("~/.claudecode")}
+                                      className="text-primary hover:underline text-xs shrink-0 font-medium"
+                                    >
+                                      Reveal
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="space-y-3 border-t border-border/30 pt-4">
+                                <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Default Preferences</div>
+                                <ChatPreferenceControls
+                                  availableProviders={settingsProviderCatalogs}
+                                  selectedProvider="claude"
+                                  showProviderPicker={false}
+                                  providerLocked
+                                  model={providerDefaults.claude.model}
+                                  modelOptions={providerDefaults.claude.modelOptions}
+                                  onModelChange={(_, model) => {
+                                    handleProviderDefaultModelChange("claude", model)
+                                  }}
+                                  onModelOptionChange={(change) => {
+                                    if (change.type === "claudeReasoningEffort") {
+                                      handleProviderDefaultModelOptionsChange("claude", { reasoningEffort: change.effort })
+                                    } else if (change.type === "contextWindow") {
+                                      handleProviderDefaultModelOptionsChange("claude", { contextWindow: change.contextWindow })
+                                    }
+                                  }}
+                                  planMode={providerDefaults.claude.planMode}
+                                  onPlanModeChange={(planMode) => handleProviderDefaultPlanModeChange("claude", planMode)}
+                                  includePlanMode
+                                  className="justify-start flex-wrap gap-3"
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          {openAgentAccordion === "codex" && (
+                            <div className="space-y-5 text-sm">
+                              <div className="flex items-center justify-between border-b border-border/50 pb-2">
+                                <h4 className="text-sm font-semibold text-foreground">Codex Configuration</h4>
+                                <AgentCliDetectionPill agent={agentCliDetectionByProvider.get("codex")} />
+                              </div>
+
+                              <div className="text-muted-foreground text-xs leading-relaxed">
+                                Codex cung cấp khả năng sinh mã nguồn tốc độ cao và tối ưu hóa ngữ cảnh thông minh. Agent này sử dụng môi trường thực thi runtime tích hợp sẵn bên trong Kanna để giao tiếp trực tiếp với LLM.
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-xl border border-border/60 p-3 bg-muted/10">
+                                <div className="min-w-0">
+                                  <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-1">CLI Executable</div>
+                                  <div className="font-mono text-xs text-foreground truncate">
+                                    Built-in Kanna runtime
+                                  </div>
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-1">Configuration Directory</div>
+                                  <div className="font-mono text-xs text-foreground truncate select-all">
+                                    Internal database config
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="space-y-3 border-t border-border/30 pt-4">
+                                <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Default Preferences</div>
+                                <ChatPreferenceControls
+                                  availableProviders={settingsProviderCatalogs}
+                                  selectedProvider="codex"
+                                  showProviderPicker={false}
+                                  providerLocked
+                                  model={providerDefaults.codex.model}
+                                  modelOptions={providerDefaults.codex.modelOptions}
+                                  onModelChange={(_, model) => {
+                                    handleProviderDefaultModelChange("codex", model)
+                                  }}
+                                  onModelOptionChange={(change) => {
+                                    if (change.type === "codexReasoningEffort") {
+                                      handleProviderDefaultModelOptionsChange("codex", { reasoningEffort: change.effort })
+                                    } else if (change.type === "fastMode") {
+                                      handleProviderDefaultModelOptionsChange("codex", { fastMode: change.fastMode })
+                                    }
+                                  }}
+                                  planMode={providerDefaults.codex.planMode}
+                                  onPlanModeChange={(planMode) => handleProviderDefaultPlanModeChange("codex", planMode)}
+                                  includePlanMode
+                                  className="justify-start flex-wrap gap-3"
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          {openAgentAccordion === "antigravity" && (
+                            <div className="space-y-5 text-sm">
+                              <div className="flex items-center justify-between border-b border-border/50 pb-2">
+                                <h4 className="text-sm font-semibold text-foreground">Antigravity Configuration</h4>
+                                <AgentCliDetectionPill agent={agentCliDetectionByProvider.get("antigravity")} />
+                              </div>
+
+                              <div className="text-muted-foreground text-xs leading-relaxed">
+                                Antigravity là một agent chuyên sâu về phân tích kiến trúc mã nguồn phức tạp và tự động hóa các thử nghiệm nghiên cứu thông tin dựa trên AI.
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-xl border border-border/60 p-3 bg-muted/10">
+                                <div className="min-w-0">
+                                  <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-1">CLI Executable</div>
+                                  <div className="font-mono text-xs text-foreground truncate select-all" title={agentCliDetectionByProvider.get("antigravity")?.commandPath || ""}>
+                                    {agentCliDetectionByProvider.get("antigravity")?.commandPath || "agy (global package)"}
+                                  </div>
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-1">Configuration Directory</div>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="font-mono text-xs text-foreground truncate select-all">~/.antigravity/</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => void openExternalPath("~/.antigravity")}
+                                      className="text-primary hover:underline text-xs shrink-0 font-medium"
+                                    >
+                                      Reveal
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="space-y-3 border-t border-border/30 pt-4">
+                                <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Status</div>
+                                <div className="flex flex-wrap gap-2">
+                                  <StatusPill tone="neutral">Disabled</StatusPill>
+                                </div>
+                                <p className="text-xs text-muted-foreground leading-relaxed">
+                                  Antigravity is temporarily disabled due to agent stability issues.
+                                </p>
+                              </div>
+                            </div>
+                          )}
+
+                          {openAgentAccordion === "pi" && (
+                            <div className="space-y-5 text-sm">
+                              <div className="flex items-center justify-between border-b border-border/50 pb-2">
+                                <h4 className="text-sm font-semibold text-foreground">Pi Agent Configuration</h4>
+                                <AgentCliDetectionPill agent={agentCliDetectionByProvider.get("pi")} />
+                              </div>
+
+                              <div className="text-muted-foreground text-xs leading-relaxed">
+                                Pi Agent tự động hóa các tác vụ thông qua MCP servers cục bộ và các custom skills của nó. Kanna truy vấn Pi CLI runtime để khám phá động danh sách các công cụ khả dụng.
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-xl border border-border/60 p-3 bg-muted/10">
+                                <div className="min-w-0">
+                                  <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-1">CLI Executable</div>
+                                  <div className="font-mono text-xs text-foreground truncate select-all" title={agentCliDetectionByProvider.get("pi")?.commandPath || ""}>
+                                    {agentCliDetectionByProvider.get("pi")?.commandPath || "pi (global npm package)"}
+                                  </div>
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-1">Configuration Directory</div>
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="font-mono text-xs text-foreground truncate select-all">~/.pi/agent/</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => void openExternalPath("~/.pi/agent")}
+                                      className="text-primary hover:underline text-xs shrink-0 font-medium"
+                                    >
+                                      Reveal
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="space-y-3 border-t border-border/30 pt-4">
+                                <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-wider">Default Preferences</div>
+                                <ChatPreferenceControls
+                                  availableProviders={settingsProviderCatalogs}
+                                  selectedProvider="pi"
+                                  showProviderPicker={false}
+                                  providerLocked
+                                  model={providerDefaults.pi.model}
+                                  modelOptions={providerDefaults.pi.modelOptions}
+                                  onModelChange={(_, model) => {
+                                    handleProviderDefaultModelChange("pi", model)
+                                  }}
+                                  onModelOptionChange={(change) => {
+                                    if (change.type === "piReasoningEffort") {
+                                      handleProviderDefaultModelOptionsChange("pi", { reasoningEffort: change.effort as any })
+                                    }
+                                  }}
+                                  planMode={providerDefaults.pi.planMode}
+                                  onPlanModeChange={(planMode) => handleProviderDefaultPlanModeChange("pi", planMode)}
+                                  includePlanMode
+                                  className="justify-start flex-wrap gap-3"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
 
                     {agentCliDetectionError ? (
