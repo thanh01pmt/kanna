@@ -93,6 +93,8 @@ export type ClientCommand =
   | { type: "project.remove"; projectId?: string; localPath?: string; deleteHistory?: boolean }
   | { type: "sidebar.reorderProjectGroups"; projectIds: string[] }
   | { type: "project.readDiffPatch"; projectId: string; path: string }
+  | { type: "project.saveMcpConfig"; projectId: string; content: string }
+  | { type: "project.restoreMcpConfig"; projectId: string }
   | { type: "system.ping" }
   | { type: "browser.listLocalHttpServers"; projectId?: string }
   | { type: "browser.killLocalHttpServer"; port: number }

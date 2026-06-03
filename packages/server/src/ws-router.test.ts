@@ -2207,4 +2207,117 @@ describe("ws-router", () => {
       result: { snapshotChanged: false },
     })
   })
+
+  test("saves and restores MCP configuration with backup", async () => {
+    const { readFile } = await import("node:fs/promises")
+    const projectPath = await mkdtemp(path.join(tmpdir(), "kanna-ws-mcp-"))
+    const state = createEmptyState()
+    state.projectsById.set("project-mcp-1", {
+      id: "project-mcp-1",
+      localPath: projectPath,
+      title: "MCP Project",
+      createdAt: 1,
+      updatedAt: 1,
+    })
+
+    try {
+      const router = createWsRouter({
+        store: {
+          state,
+          getProject: (projectId: string) => state.projectsById.get(projectId) ?? null,
+        } as never,
+        agent: { getActiveStatuses: () => new Map(), getDrainingChatIds: () => new Set() } as never,
+        terminals: {
+          getSnapshot: () => null,
+          onEvent: () => () => {},
+        } as never,
+        keybindings: {
+          getSnapshot: () => DEFAULT_KEYBINDINGS_SNAPSHOT,
+          onChange: () => () => {},
+        } as never,
+        refreshDiscovery: async () => [],
+        getDiscoveredProjects: () => [],
+        machineDisplayName: "Local Machine",
+        updateManager: null,
+      })
+      const ws = new FakeWebSocket()
+
+      // 1. Initial state: write a dummy config to simulate an existing config
+      const initialConfig = {
+        tools: {
+          "kanna-workflow": {
+            "fetch": true
+          }
+        }
+      }
+      const configPath = path.join(projectPath, ".mcp.json")
+      const backupPath = path.join(projectPath, ".mcp.json.bak")
+      await writeFile(configPath, JSON.stringify(initialConfig), "utf8")
+
+      // 2. Execute project.saveMcpConfig
+      const newConfig = {
+        tools: {
+          "kanna-workflow": {
+            "fetch": false,
+            "read": true
+          }
+        }
+      }
+      await router.handleMessage(
+        ws as never,
+        JSON.stringify({
+          v: 1,
+          type: "command",
+          id: "save-mcp-1",
+          command: {
+            type: "project.saveMcpConfig",
+            projectId: "project-mcp-1",
+            content: JSON.stringify(newConfig, null, 2),
+          },
+        })
+      )
+
+      expect(ws.sent).toContainEqual({
+        v: PROTOCOL_VERSION,
+        type: "ack",
+        id: "save-mcp-1",
+        result: { success: true },
+      })
+
+      // Verify that the new config is written and the backup has the initial config
+      const savedConfigContent = JSON.parse(await readFile(configPath, "utf8"))
+      expect(savedConfigContent).toEqual(newConfig)
+
+      const backupConfigContent = JSON.parse(await readFile(backupPath, "utf8"))
+      expect(backupConfigContent).toEqual(initialConfig)
+
+      // 3. Execute project.restoreMcpConfig
+      await router.handleMessage(
+        ws as never,
+        JSON.stringify({
+          v: 1,
+          type: "command",
+          id: "restore-mcp-1",
+          command: {
+            type: "project.restoreMcpConfig",
+            projectId: "project-mcp-1",
+          },
+        })
+      )
+
+      expect(ws.sent).toContainEqual({
+        v: PROTOCOL_VERSION,
+        type: "ack",
+        id: "restore-mcp-1",
+        result: { success: true },
+      })
+
+      // Verify that restored config matches initialConfig
+      const restoredConfigContent = JSON.parse(await readFile(configPath, "utf8"))
+      expect(restoredConfigContent).toEqual(initialConfig)
+    } finally {
+      await rm(projectPath, { recursive: true, force: true })
+    }
+  })
 })
+

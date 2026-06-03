@@ -22,6 +22,7 @@ import { join } from "node:path"
 import type { NormalizedToolCall, PiReasoningEffort, TranscriptEntry } from "@kanna/shared/types"
 import { normalizeToolCall } from "@kanna/shared/tools"
 import type { HarnessEvent, HarnessToolRequest, HarnessTurn } from "./harness-types"
+import { getDisabledMcpToolNames, isProjectCapabilityEnabled, readProjectMcpToolConfig } from "./mcp-tool-config"
 
 type CreatePiAgentSession = (options?: CreateAgentSessionOptions) => Promise<CreateAgentSessionResult>
 type PiSdkModel = NonNullable<CreateAgentSessionOptions["model"]>
@@ -220,6 +221,37 @@ export class PiSdkAppServerManager {
       }
     }
 
+    const projectToolConfig = await readProjectMcpToolConfig(args.cwd)
+    const disabledMcpTools = getDisabledMcpToolNames(projectToolConfig)
+
+    const disabledToolCandidateSet = new Set<string>()
+    for (const disabledTool of disabledMcpTools) {
+      if (disabledTool.startsWith("mcp__")) {
+        const parts = disabledTool.slice(5).split("__")
+        if (parts.length >= 2) {
+          const serverName = parts[0]
+          const toolName = parts.slice(1).join("__")
+
+          disabledToolCandidateSet.add(`${serverName}_${toolName}`)
+          disabledToolCandidateSet.add(toolName)
+
+          const cleanServerName = serverName.toLowerCase().replace(/-/g, "_")
+          const cleanToolName = toolName.toLowerCase().replace(/-/g, "_")
+          disabledToolCandidateSet.add(`${cleanServerName}_${cleanToolName}`)
+          disabledToolCandidateSet.add(cleanToolName)
+
+          const shortServer = serverName.replace(/-?mcp$/i, "")
+          if (shortServer) {
+            disabledToolCandidateSet.add(`${shortServer}_${toolName}`)
+          }
+          const shortServerClean = cleanServerName.replace(/_?mcp$/i, "")
+          if (shortServerClean) {
+            disabledToolCandidateSet.add(`${shortServerClean}_${cleanToolName}`)
+          }
+        }
+      }
+    }
+
     const { DefaultResourceLoader, SettingsManager } = await import("@earendil-works/pi-coding-agent")
     const settingsManager = SettingsManager.create(args.cwd, this.agentDir)
     const resourceLoader = new DefaultResourceLoader({
@@ -228,6 +260,12 @@ export class PiSdkAppServerManager {
       settingsManager,
       additionalSkillPaths,
       skillsOverride: (base) => {
+        if (!isProjectCapabilityEnabled(projectToolConfig, "skills")) {
+          return {
+            skills: [],
+            diagnostics: base.diagnostics,
+          }
+        }
         return {
           skills: base.skills.filter((s) => {
             const parts = s.filePath.split(/[/\\]/)
@@ -235,6 +273,25 @@ export class PiSdkAppServerManager {
           }),
           diagnostics: base.diagnostics,
         }
+      },
+      extensionsOverride: (base) => {
+        const mcpEnabled = isProjectCapabilityEnabled(projectToolConfig, "mcp")
+        for (const ext of base.extensions) {
+          const isMcpExtension = ext.path.includes("pi-mcp-adapter") || ext.resolvedPath.includes("pi-mcp-adapter")
+          if (isMcpExtension) {
+            if (!mcpEnabled) {
+              ext.tools.clear()
+            } else {
+              for (const [toolName] of ext.tools.entries()) {
+                const normalizedToolName = toolName.toLowerCase().replace(/-/g, "_")
+                if (disabledToolCandidateSet.has(toolName) || disabledToolCandidateSet.has(normalizedToolName)) {
+                  ext.tools.delete(toolName)
+                }
+              }
+            }
+          }
+        }
+        return base
       }
     })
     await resourceLoader.reload()

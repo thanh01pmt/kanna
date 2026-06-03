@@ -166,4 +166,150 @@ describe("PiSdkAppServerManager", () => {
     expect(fakeSession.aborted).toBe(true)
     expect(events.map((event) => event.entry?.kind)).toEqual(["system_init", "interrupted"])
   })
+
+  test("applies skillsOverride and extensionsOverride based on .mcp.json", async () => {
+    const { mkdtemp, writeFile, rm } = await import("node:fs/promises")
+    const { tmpdir } = await import("node:os")
+    const { join } = await import("node:path")
+
+    // Case 1: skills disabled, specific mcp tool disabled
+    const tempDir1 = await mkdtemp(join(tmpdir(), "kanna-pi-test-1-"))
+    try {
+      const mcpConfig = {
+        tools: {
+          "researcher-mcp": {
+            "research_source": false,
+          },
+        },
+        capabilities: {
+          skills: false,
+          mcp: true,
+        },
+      }
+      await writeFile(join(tempDir1, ".mcp.json"), JSON.stringify(mcpConfig))
+
+      const createCalls: any[] = []
+      const manager = new PiSdkAppServerManager({
+        modelRegistry: {
+          refresh: () => {},
+          getAll: () => [],
+          find: () => undefined,
+        } as never,
+        createSession: async (options) => {
+          createCalls.push(options)
+          return {
+            session: new FakePiSdkSession() as never,
+            extensionsResult: {} as never,
+          }
+        },
+      })
+
+      await manager.startSession({
+        chatId: "chat-test-mcp-1",
+        cwd: tempDir1,
+        model: "gpt-5.5",
+        sessionToken: null,
+      })
+
+      expect(createCalls.length).toBe(1)
+      const loader = createCalls[0].resourceLoader
+      expect(loader).toBeDefined()
+
+      // Test skillsOverride when skills are disabled
+      const mockSkillsBase = {
+        skills: [{ filePath: "skills/test.js" }],
+        diagnostics: [],
+      }
+      const overriddenSkills = loader.skillsOverride(mockSkillsBase)
+      expect(overriddenSkills.skills).toEqual([])
+
+      // Test extensionsOverride when specific tool is disabled
+      const mockExtensionsBase = {
+        extensions: [
+          {
+            path: "node_modules/pi-mcp-adapter",
+            resolvedPath: "node_modules/pi-mcp-adapter",
+            tools: new Map([
+              ["researcher_mcp_research_source", {} as any],
+              ["researcher_mcp_research_evidence", {} as any],
+            ]),
+          },
+        ],
+        errors: [],
+        runtime: {} as any,
+      }
+      const overriddenExtensions = loader.extensionsOverride(mockExtensionsBase)
+      const toolsMap = overriddenExtensions.extensions[0].tools
+      expect(toolsMap.has("researcher_mcp_research_source")).toBe(false)
+      expect(toolsMap.has("researcher_mcp_research_evidence")).toBe(true)
+    } finally {
+      await rm(tempDir1, { recursive: true, force: true })
+    }
+
+    // Case 2: mcp disabled entirely
+    const tempDir2 = await mkdtemp(join(tmpdir(), "kanna-pi-test-2-"))
+    try {
+      const mcpConfig = {
+        capabilities: {
+          skills: true,
+          mcp: false,
+        },
+      }
+      await writeFile(join(tempDir2, ".mcp.json"), JSON.stringify(mcpConfig))
+
+      const createCalls: any[] = []
+      const manager = new PiSdkAppServerManager({
+        modelRegistry: {
+          refresh: () => {},
+          getAll: () => [],
+          find: () => undefined,
+        } as never,
+        createSession: async (options) => {
+          createCalls.push(options)
+          return {
+            session: new FakePiSdkSession() as never,
+            extensionsResult: {} as never,
+          }
+        },
+      })
+
+      await manager.startSession({
+        chatId: "chat-test-mcp-2",
+        cwd: tempDir2,
+        model: "gpt-5.5",
+        sessionToken: null,
+      })
+
+      expect(createCalls.length).toBe(1)
+      const loader = createCalls[0].resourceLoader
+
+      // Test skillsOverride when skills are enabled
+      const mockSkillsBase = {
+        skills: [{ filePath: "skills/test.js" }],
+        diagnostics: [],
+      }
+      const overriddenSkills = loader.skillsOverride(mockSkillsBase)
+      expect(overriddenSkills.skills.length).toBe(1)
+
+      // Test extensionsOverride when mcp is disabled entirely
+      const mockExtensionsBase = {
+        extensions: [
+          {
+            path: "node_modules/pi-mcp-adapter",
+            resolvedPath: "node_modules/pi-mcp-adapter",
+            tools: new Map([
+              ["researcher_mcp_research_source", {} as any],
+            ]),
+          },
+        ],
+        errors: [],
+        runtime: {} as any,
+      }
+      const overriddenExtensions = loader.extensionsOverride(mockExtensionsBase)
+      const toolsMap = overriddenExtensions.extensions[0].tools
+      expect(toolsMap.size).toBe(0)
+    } finally {
+      await rm(tempDir2, { recursive: true, force: true })
+    }
+  })
 })

@@ -1404,6 +1404,36 @@ export function createWsRouter({
           send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           return
         }
+        case "project.saveMcpConfig": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          const configPath = resolveProjectPath(project.localPath, ".mcp.json")
+          const backupPath = resolveProjectPath(project.localPath, ".mcp.json.bak")
+          if (existsSync(configPath)) {
+            const currentContent = await readFile(configPath, "utf8")
+            await writeFile(backupPath, currentContent, "utf8")
+          }
+          await writeFile(configPath, command.content, "utf8")
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { success: true } })
+          return
+        }
+        case "project.restoreMcpConfig": {
+          const project = store.getProject(command.projectId)
+          if (!project) {
+            throw new Error("Project not found")
+          }
+          const configPath = resolveProjectPath(project.localPath, ".mcp.json")
+          const backupPath = resolveProjectPath(project.localPath, ".mcp.json.bak")
+          if (!existsSync(backupPath)) {
+            throw new Error("No backup file found")
+          }
+          const backupContent = await readFile(backupPath, "utf8")
+          await writeFile(configPath, backupContent, "utf8")
+          send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { success: true } })
+          return
+        }
         case "project.readQuickActions": {
           const project = store.getProject(command.projectId)
           if (!project) {

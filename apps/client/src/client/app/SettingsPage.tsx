@@ -38,6 +38,7 @@ import {
   ArrowRight,
   Bot,
   Cpu,
+  History,
 } from "lucide-react"
 import Markdown from "react-markdown"
 import remarkGfm from "remark-gfm"
@@ -2527,6 +2528,7 @@ export function McpSection({
   const projectId = state.activeProjectId
   const activeProject = state.sidebarData.projectGroups.find(p => p.groupKey === projectId)
   const [config, setConfig] = useState<McpConfig>({ mcpServers: {} })
+  const [originalConfig, setOriginalConfig] = useState<McpConfig>({ mcpServers: {} })
   const [loading, setLoading] = useState(false)
   const [savingServerName, setSavingServerName] = useState<string | null>(null)
   const [mcpError, setMcpError] = useState<string | null>(null)
@@ -2544,6 +2546,7 @@ export function McpSection({
   const loadConfig = async () => {
     if (!projectId || state.connectionStatus !== "connected") {
       setConfig({ mcpServers: {} })
+      setOriginalConfig({ mcpServers: {} })
       return
     }
     try {
@@ -2554,11 +2557,14 @@ export function McpSection({
         projectId,
         relativePath: ".mcp.json",
       })
-      setConfig(parseMcpConfig(content))
+      const parsed = parseMcpConfig(content)
+      setConfig(parsed)
+      setOriginalConfig(JSON.parse(JSON.stringify(parsed)))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       if (message.includes("ENOENT") || message.includes("no such file")) {
         setConfig({ mcpServers: {} })
+        setOriginalConfig({ mcpServers: {} })
         setMcpError(null)
       } else {
         setMcpError(message)
@@ -2598,30 +2604,57 @@ export function McpSection({
     }
   }
 
-  const saveConfig = async (nextConfig: McpConfig, savingName?: string) => {
-    if (!projectId) return
+  const [saving, setSaving] = useState(false)
+
+  const handleSaveConfig = async () => {
+    if (!projectId || state.connectionStatus !== "connected") return
     try {
-      setSavingServerName(savingName ?? "__config__")
+      setSaving(true)
       setMcpError(null)
       await state.socket.command({
-        type: "project.writeFile",
+        type: "project.saveMcpConfig",
         projectId,
-        relativePath: ".mcp.json",
         content: `${JSON.stringify({
-          mcpServers: nextConfig.mcpServers ?? {},
-          tools: nextConfig.tools ?? {},
-          capabilities: nextConfig.capabilities ?? {},
+          mcpServers: config.mcpServers ?? {},
+          tools: config.tools ?? {},
+          capabilities: config.capabilities ?? {},
         }, null, 2)}\n`,
       })
-      setConfig(nextConfig)
+      setOriginalConfig(JSON.parse(JSON.stringify(config)))
     } catch (error) {
       setMcpError(error instanceof Error ? error.message : String(error))
     } finally {
-      setSavingServerName(null)
+      setSaving(false)
     }
   }
 
-  const handleAddServer = async () => {
+  const handleResetConfig = () => {
+    setConfig(JSON.parse(JSON.stringify(originalConfig)))
+  }
+
+  const [restoring, setRestoring] = useState(false)
+
+  const handleRestoreBackup = async () => {
+    if (!projectId || state.connectionStatus !== "connected") return
+    const confirmed = window.confirm("Restore .mcp.json from backup? This will overwrite current settings.")
+    if (!confirmed) return
+    try {
+      setRestoring(true)
+      setMcpError(null)
+      await state.socket.command({
+        type: "project.restoreMcpConfig",
+        projectId,
+      })
+      alert("Configuration restored from backup successfully.")
+      void loadConfig()
+    } catch (error) {
+      setMcpError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setRestoring(false)
+    }
+  }
+
+  const handleAddServer = () => {
     const name = serverName.trim()
     const command = serverCommand.trim()
     if (!name || !command) {
@@ -2639,21 +2672,25 @@ export function McpSection({
         },
       },
     }
-    await saveConfig(nextConfig, name)
+    setConfig(nextConfig)
     setServerName("custom-server")
     setServerCommand("")
     setServerArgs("")
   }
 
-  const handleRemoveServer = async (name: string) => {
-    const confirmed = window.confirm(`Remove MCP server "${name}" from .mcp.json?`)
+  const handleRemoveServer = (name: string) => {
+    const confirmed = window.confirm(`Remove MCP server "${name}" from config? (Your changes won't be saved on disk until you click Save Changes)`)
     if (!confirmed) return
     const nextServers = { ...(config.mcpServers ?? {}) }
     delete nextServers[name]
-    await saveConfig({ ...config, mcpServers: nextServers }, name)
+    const nextConfig = {
+      ...config,
+      mcpServers: nextServers,
+    }
+    setConfig(nextConfig)
   }
 
-  const handleToggleTool = async (serverName: string, toolName: string) => {
+  const handleToggleTool = (serverName: string, toolName: string) => {
     const currentTools = config.tools ?? {}
     const serverTools = currentTools[serverName] ?? {}
     const nextValue = serverTools[toolName] === false ? true : false
@@ -2669,10 +2706,9 @@ export function McpSection({
       },
     }
     setConfig(nextConfig)
-    await saveConfig(nextConfig)
   }
 
-  const handleSetServerTools = async (serverName: string, toolNames: readonly string[], enabled: boolean) => {
+  const handleSetServerTools = (serverName: string, toolNames: readonly string[], enabled: boolean) => {
     const currentTools = config.tools ?? {}
     const serverTools = currentTools[serverName] ?? {}
     const nextServerTools = { ...serverTools }
@@ -2688,10 +2724,9 @@ export function McpSection({
       },
     }
     setConfig(nextConfig)
-    await saveConfig(nextConfig)
   }
 
-  const handleToggleCapability = async (capability: typeof PROJECT_CAPABILITIES[number]["id"]) => {
+  const handleToggleCapability = (capability: typeof PROJECT_CAPABILITIES[number]["id"]) => {
     const currentCapabilities = config.capabilities ?? {}
     const nextConfig = {
       ...config,
@@ -2701,26 +2736,75 @@ export function McpSection({
       },
     }
     setConfig(nextConfig)
-    await saveConfig(nextConfig)
   }
 
   useEffect(() => {
+    void loadConfig()
     if (defaultProvider === "pi") {
       void loadPiMcp()
-    } else if (defaultProvider === "claude" || defaultProvider === "codex" || !defaultProvider) {
-      void loadConfig()
     }
   }, [projectId, state.connectionStatus, state.socket, defaultProvider])
+  const hasChanges = JSON.stringify(config) !== JSON.stringify(originalConfig)
 
   if (defaultProvider === "pi") {
+    const isMcpCapabilityEnabled = config.capabilities?.mcp !== false
+    let enabledToolsCount = 0
+    let disabledToolsCount = 0
+
+    Object.entries(piMcpServers).forEach(([serverName, serverInfo]: [string, any]) => {
+      const tools = serverInfo.tools || []
+      tools.forEach((tool: any) => {
+        const isEnabled = isMcpCapabilityEnabled && config.tools?.[serverName]?.[tool.name] !== false
+        if (isEnabled) {
+          enabledToolsCount++
+        } else {
+          disabledToolsCount++
+        }
+      })
+    })
+
     const totalTools = Object.values(piMcpServers).reduce((acc, serverInfo: any) => acc + (serverInfo.tools?.length ?? 0), 0)
-    const tokenBloat = totalTools * 150
+    const tokenBloat = enabledToolsCount * 150
     const tokenSeverity = tokenBloat > 3000 ? "high" : tokenBloat > 1200 ? "medium" : "low"
     const severityText = tokenSeverity === "high" ? "High Context Bloat" : tokenSeverity === "medium" ? "Moderate Context Bloat" : "Optimal Context Usage"
     const severityColor = tokenSeverity === "high" ? "text-red-500 bg-red-500/10 border-red-500/20" : tokenSeverity === "medium" ? "text-amber-500 bg-amber-500/10 border-amber-500/20" : "text-emerald-500 bg-emerald-500/10 border-emerald-500/20"
 
     return (
       <div className="flex flex-col gap-6">
+        {hasChanges && (
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-xl border border-amber-500/20 bg-amber-500/5 px-6 py-4">
+            <div className="flex gap-3">
+              <AlertCircle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+              <div>
+                <div className="text-sm font-semibold text-foreground font-sans">Unsaved Changes</div>
+                <div className="mt-1 text-sm text-muted-foreground leading-relaxed font-sans">
+                  Bạn có thay đổi chưa lưu trên cấu hình MCP. Hãy lưu hoặc reset lại.
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleResetConfig}
+                disabled={saving}
+              >
+                Reset
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => void handleSaveConfig()}
+                disabled={saving}
+              >
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+                Save Changes
+              </Button>
+            </div>
+          </div>
+        )}
+
         <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-6 py-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex gap-3">
@@ -2732,16 +2816,29 @@ export function McpSection({
                 </div>
               </div>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={openPiMcpDir}
-              className="shrink-0 gap-1.5"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-              Open Pi Config Directory
-            </Button>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => void handleRestoreBackup()}
+                disabled={loading || restoring || !projectId}
+                className="gap-1.5"
+              >
+                {restoring ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <History className="h-3.5 w-3.5" />}
+                Restore from Backup
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={openPiMcpDir}
+                className="gap-1.5"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                Open Pi Config Directory
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -2769,11 +2866,11 @@ export function McpSection({
             <div className="mt-2 flex flex-col gap-1">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground font-sans">Enabled</span>
-                <span className="font-semibold text-emerald-500">{totalTools}</span>
+                <span className="font-semibold text-emerald-500">{enabledToolsCount}</span>
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground font-sans">Disabled</span>
-                <span className="font-semibold text-muted-foreground">0</span>
+                <span className="font-semibold text-muted-foreground">{disabledToolsCount}</span>
               </div>
             </div>
           </div>
@@ -2816,21 +2913,48 @@ export function McpSection({
                   </div>
                   {serverInfo.tools && serverInfo.tools.length > 0 ? (
                     <div className="divide-y divide-border">
-                      {serverInfo.tools.map((tool: any) => (
-                        <div key={tool.name} className="flex items-start justify-between gap-4 px-3 py-2.5">
-                          <div className="flex flex-col gap-1 min-w-0 flex-1 sm:grid sm:grid-cols-[200px_1fr] sm:gap-4 sm:items-start">
-                            <code className="truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground self-start" title={tool.name}>
-                              {tool.name}
-                            </code>
-                            <div className="text-xs leading-relaxed text-muted-foreground">
-                              {tool.description}
+                      {serverInfo.tools.map((tool: any) => {
+                        const isEnabled = isMcpCapabilityEnabled && config.tools?.[serverName]?.[tool.name] !== false
+                        return (
+                          <div key={tool.name} className={cn(
+                            "flex items-start justify-between gap-4 px-3 py-2.5 transition-colors",
+                            !isEnabled && "bg-muted/20"
+                          )}>
+                            <div className="flex flex-col gap-1 min-w-0 flex-1 sm:grid sm:grid-cols-[200px_1fr] sm:gap-4 sm:items-start">
+                              <div className="flex items-center gap-2 self-start min-w-0">
+                                <code className="truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground" title={tool.name}>
+                                  {tool.name}
+                                </code>
+                                <span className={cn(
+                                  "px-2 py-0.5 rounded-full text-[10px] font-medium border shrink-0",
+                                  isEnabled 
+                                    ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-500" 
+                                    : "border-muted/40 bg-muted/20 text-muted-foreground"
+                                )}>
+                                  {isEnabled ? "Enabled" : "Disabled"}
+                                </span>
+                              </div>
+                              <div className="text-xs leading-relaxed text-muted-foreground">
+                                {tool.description}
+                              </div>
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleTool(serverName, tool.name)}
+                              disabled={!isMcpCapabilityEnabled}
+                              title={isEnabled ? "Disable tool" : "Enable tool"}
+                              aria-label={`${isEnabled ? "Disable" : "Enable"} ${tool.name}`}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50 shrink-0"
+                            >
+                              {isEnabled ? (
+                                <ToggleRight className="h-6 w-6 text-emerald-500" />
+                              ) : (
+                                <ToggleLeft className="h-6 w-6 text-muted-foreground/60" />
+                              )}
+                            </button>
                           </div>
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-medium border border-emerald-500/20 bg-emerald-500/10 text-emerald-500 shrink-0">
-                            Enabled
-                          </span>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   ) : (
                     <div className="px-3 py-3 text-xs text-muted-foreground">
@@ -2882,9 +3006,43 @@ export function McpSection({
   const severityColor = tokenSeverity === "high" ? "text-red-500 bg-red-500/10 border-red-500/20" : tokenSeverity === "medium" ? "text-amber-500 bg-amber-500/10 border-amber-500/20" : "text-emerald-500 bg-emerald-500/10 border-emerald-500/20"
 
   return (
-    <div className="border-b border-border">
+    <div className="border-b border-border flex flex-col gap-6">
+      {hasChanges && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-xl border border-amber-500/20 bg-amber-500/5 px-6 py-4">
+          <div className="flex gap-3">
+            <AlertCircle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+            <div>
+              <div className="text-sm font-semibold text-foreground font-sans">Unsaved Changes</div>
+              <div className="mt-1 text-sm text-muted-foreground leading-relaxed font-sans">
+                Bạn có thay đổi chưa lưu trên cấu hình MCP. Hãy lưu hoặc reset lại.
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleResetConfig}
+              disabled={saving}
+            >
+              Reset
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void handleSaveConfig()}
+              disabled={saving}
+            >
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+              Save Changes
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Telemetry/Stats Panel */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="rounded-xl border border-border bg-card/40 p-4 flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-muted-foreground font-sans">Total MCP Tools</span>
@@ -2953,6 +3111,16 @@ export function McpSection({
           <Button type="button" size="sm" variant="outline" onClick={() => void loadConfig()} disabled={loading || !projectId}>
             {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
             Refresh
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => void handleRestoreBackup()}
+            disabled={loading || restoring || !projectId}
+          >
+            {restoring ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <History className="mr-2 h-4 w-4" />}
+            Restore from Backup
           </Button>
         </div>
       </SettingsRow>
