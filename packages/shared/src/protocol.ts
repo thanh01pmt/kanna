@@ -144,6 +144,9 @@ export type ClientCommand =
   | { type: "skills.listInstalled" }
   | { type: "pi.listSkills" }
   | { type: "pi.listMcp" }
+  | { type: "settings.readAgentConfig"; agent: AgentProvider }
+  | { type: "settings.writeAgentConfig"; agent: AgentProvider; content: string }
+  | { type: "settings.restoreAgentConfig"; agent: AgentProvider }
   | {
       type: "settings.writeLlmProvider"
       provider: LlmProviderSnapshot["provider"]

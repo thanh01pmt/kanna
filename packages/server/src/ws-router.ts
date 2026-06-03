@@ -1,4 +1,5 @@
-import { readFile, readdir, writeFile } from "node:fs/promises"
+import { readFile, readdir, writeFile, mkdir } from "node:fs/promises"
+import { existsSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
 
@@ -34,6 +35,35 @@ async function listProjectFiles(projectPath: string): Promise<ProjectFileEntry[]
   await walk(projectPath)
   return entries.sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: "base", numeric: true }))
 }
+
+function getAgentConfigPaths(agent: string) {
+  const home = os.homedir()
+  switch (agent) {
+    case "pi":
+      return {
+        configPath: path.join(home, ".pi", "agent", "settings.json"),
+        backupPath: path.join(home, ".pi", "agent", "settings.json.bak"),
+      }
+    case "antigravity":
+      return {
+        configPath: path.join(home, ".gemini", "config", "mcp_config.json"),
+        backupPath: path.join(home, ".gemini", "config", "mcp_config.json.bak"),
+      }
+    case "claude":
+      return {
+        configPath: path.join(home, ".claude.json"),
+        backupPath: path.join(home, ".claude.json.bak"),
+      }
+    case "codex":
+      return {
+        configPath: path.join(home, ".codex", "config.toml"),
+        backupPath: path.join(home, ".codex", "config.toml.bak"),
+      }
+    default:
+      throw new Error(`Unsupported agent config: ${agent}`)
+  }
+}
+
 
 async function listMarkdownFiles(projectPath: string): Promise<string[]> {
   const files: string[] = []
@@ -2011,6 +2041,63 @@ export function createWsRouter({
             send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result })
           } catch (err) {
             send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: {} })
+          }
+          return
+        }
+        case "settings.readAgentConfig": {
+          try {
+            const { configPath, backupPath } = getAgentConfigPaths(command.agent)
+            let content = ""
+            if (existsSync(configPath)) {
+              content = await readFile(configPath, "utf8")
+            }
+            const hasBackup = existsSync(backupPath)
+            send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { content, hasBackup } })
+          } catch (err) {
+            send(ws, { v: PROTOCOL_VERSION, type: "error", id, message: err instanceof Error ? err.message : String(err) })
+          }
+          return
+        }
+        case "settings.writeAgentConfig": {
+          try {
+            const { configPath, backupPath } = getAgentConfigPaths(command.agent)
+
+            if (command.agent !== "codex") {
+              try {
+                JSON.parse(command.content)
+              } catch (parseErr) {
+                send(ws, { v: PROTOCOL_VERSION, type: "error", id, message: "Invalid JSON format: " + (parseErr as Error).message })
+                return
+              }
+            }
+
+            await mkdir(path.dirname(configPath), { recursive: true })
+
+            if (existsSync(configPath)) {
+              const currentContent = await readFile(configPath, "utf8")
+              await writeFile(backupPath, currentContent, "utf8")
+            }
+
+            await writeFile(configPath, command.content, "utf8")
+            send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { success: true } })
+          } catch (err) {
+            send(ws, { v: PROTOCOL_VERSION, type: "error", id, message: err instanceof Error ? err.message : String(err) })
+          }
+          return
+        }
+        case "settings.restoreAgentConfig": {
+          try {
+            const { configPath, backupPath } = getAgentConfigPaths(command.agent)
+            if (!existsSync(backupPath)) {
+              send(ws, { v: PROTOCOL_VERSION, type: "error", id, message: "No backup file found to restore." })
+              return
+            }
+
+            const backupContent = await readFile(backupPath, "utf8")
+            await writeFile(configPath, backupContent, "utf8")
+            send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { success: true } })
+          } catch (err) {
+            send(ws, { v: PROTOCOL_VERSION, type: "error", id, message: err instanceof Error ? err.message : String(err) })
           }
           return
         }

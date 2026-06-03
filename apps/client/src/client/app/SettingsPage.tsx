@@ -3116,6 +3116,170 @@ function SettingsRow({
   )
 }
 
+interface AgentConfigEditorProps {
+  agent: AgentProvider
+  socket: any
+}
+
+function AgentConfigEditor({ agent, socket }: AgentConfigEditorProps) {
+  const [content, setContent] = useState("")
+  const [draft, setDraft] = useState("")
+  const [hasBackup, setHasBackup] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [successMsg, setSuccessMsg] = useState("")
+
+  const configFiles: Record<AgentProvider, { name: string; path: string; isJson: boolean }> = {
+    pi: { name: "settings.json", path: "~/.pi/agent/settings.json", isJson: true },
+    antigravity: { name: "mcp_config.json", path: "~/.gemini/config/mcp_config.json", isJson: true },
+    claude: { name: ".claude.json", path: "~/.claude.json", isJson: true },
+    codex: { name: "config.toml", path: "~/.codex/config.toml", isJson: false },
+  }
+
+  const fileInfo = configFiles[agent]
+
+  const loadConfig = async () => {
+    setLoading(true)
+    setError(null)
+    setSuccessMsg("")
+    try {
+      const result = await socket.command({
+        type: "settings.readAgentConfig",
+        agent,
+      })
+      setContent(result.content)
+      setDraft(result.content)
+      setHasBackup(result.hasBackup)
+    } catch (err: any) {
+      setError(err?.message || "Failed to load configuration.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadConfig()
+  }, [agent])
+
+  const handleTextChange = (val: string) => {
+    setDraft(val)
+    setSuccessMsg("")
+    if (fileInfo.isJson && val.trim()) {
+      try {
+        JSON.parse(val)
+        setError(null)
+      } catch (err: any) {
+        setError(`Invalid JSON: ${err.message}`)
+      }
+    } else {
+      setError(null)
+    }
+  }
+
+  const handleSave = async () => {
+    if (error) return
+    setLoading(true)
+    setError(null)
+    setSuccessMsg("")
+    try {
+      await socket.command({
+        type: "settings.writeAgentConfig",
+        agent,
+        content: draft,
+      })
+      setContent(draft)
+      setSuccessMsg("Configuration saved successfully (backup created).")
+      setHasBackup(true)
+    } catch (err: any) {
+      setError(err?.message || "Failed to save configuration.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleRestore = async () => {
+    if (!confirm("Are you sure you want to restore from the backup? This will overwrite the current configuration.")) {
+      return
+    }
+    setLoading(true)
+    setError(null)
+    setSuccessMsg("")
+    try {
+      await socket.command({
+        type: "settings.restoreAgentConfig",
+        agent,
+      })
+      await loadConfig()
+      setSuccessMsg("Configuration restored from backup successfully.")
+    } catch (err: any) {
+      setError(err?.message || "Failed to restore backup.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const isModified = draft !== content
+  const canSave = isModified && !error && !loading
+
+  return (
+    <div className="space-y-3 border-t border-border/30 pt-4 mt-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h5 className="text-xs font-semibold text-foreground">Raw Configuration Editor</h5>
+          <p className="text-[10px] text-muted-foreground font-mono mt-0.5">{fileInfo.path}</p>
+        </div>
+        <div className="flex gap-2">
+          {hasBackup && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void handleRestore()}
+              disabled={loading}
+              className="text-[11px] h-7 px-2.5"
+            >
+              Restore from Backup
+            </Button>
+          )}
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            onClick={() => void handleSave()}
+            disabled={!canSave}
+            className="text-[11px] h-7 px-2.5"
+          >
+            {loading ? "Saving..." : "Save Changes"}
+          </Button>
+        </div>
+      </div>
+
+      <div className="relative">
+        <textarea
+          value={draft}
+          onChange={(e) => handleTextChange(e.target.value)}
+          disabled={loading}
+          spellCheck={false}
+          className="w-full h-48 font-mono text-xs p-3 rounded-lg border border-border bg-muted/20 text-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-y"
+          placeholder={`// Paste or write ${fileInfo.name} content here...`}
+        />
+      </div>
+
+      {error && (
+        <div className="text-xs font-medium text-destructive bg-destructive/10 border border-destructive/20 rounded-md p-2">
+          {error}
+        </div>
+      )}
+      {successMsg && (
+        <div className="text-xs font-medium text-green bg-green/10 border border-green/20 rounded-md p-2">
+          {successMsg}
+        </div>
+      )}
+    </div>
+  )
+}
+
+
 export function SettingsPage() {
   const navigate = useNavigate()
   const { sectionId } = useParams<{ sectionId: string }>()
@@ -4212,6 +4376,7 @@ export function SettingsPage() {
                                   className="justify-start flex-wrap gap-3"
                                 />
                               </div>
+                              <AgentConfigEditor agent="claude" socket={state.socket} />
                             </div>
                           )}
 
@@ -4266,6 +4431,7 @@ export function SettingsPage() {
                                   className="justify-start flex-wrap gap-3"
                                 />
                               </div>
+                              <AgentConfigEditor agent="codex" socket={state.socket} />
                             </div>
                           )}
 
@@ -4311,6 +4477,7 @@ export function SettingsPage() {
                                   Antigravity is temporarily disabled due to agent stability issues.
                                 </p>
                               </div>
+                              <AgentConfigEditor agent="antigravity" socket={state.socket} />
                             </div>
                           )}
 
@@ -4370,6 +4537,7 @@ export function SettingsPage() {
                                   className="justify-start flex-wrap gap-3"
                                 />
                               </div>
+                              <AgentConfigEditor agent="pi" socket={state.socket} />
                             </div>
                           )}
                         </div>
