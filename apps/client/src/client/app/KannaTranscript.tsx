@@ -99,7 +99,7 @@ function getTranscriptMessageRenderState(
         shouldRender = message.toolKind !== "todo_write" || isLatestTodoWrite
         break
       case "result":
-        shouldRender = !hideResult && (!message.success || message.durationMs > 60000)
+        shouldRender = !hideResult
         break
       case "context_window_updated":
         shouldRender = false
@@ -247,6 +247,23 @@ function sameAttachmentArray(left: ChatAttachment[] | undefined, right: ChatAtta
   return left.every((attachment, index) => sameAttachment(attachment, right[index]!))
 }
 
+function sameChatDiffSnapshot(left: ChatDiffSnapshot | null | undefined, right: ChatDiffSnapshot | null | undefined) {
+  if (left === right) return true
+  if (!left || !right) return false
+  if (left.status !== right.status || left.branchName !== right.branchName || left.files.length !== right.files.length) {
+    return false
+  }
+  return left.files.every((file, index) => {
+    const other = right.files[index]
+    return Boolean(other)
+      && file.path === other.path
+      && file.changeType === other.changeType
+      && file.additions === other.additions
+      && file.deletions === other.deletions
+      && file.patchDigest === other.patchDigest
+  })
+}
+
 function sameMessage(left: HydratedTranscriptMessage, right: HydratedTranscriptMessage) {
   if (left === right) return true
   if (left.kind !== right.kind || left.id !== right.id || left.hidden !== right.hidden) return false
@@ -314,6 +331,7 @@ function isResolvedTranscriptRowUnchanged(left: ResolvedTranscriptRow, right: Re
       && left.isLatestTodoWrite === right.isLatestTodoWrite
       && left.hideResult === right.hideResult
       && left.isFinalStatus === right.isFinalStatus
+      && sameChatDiffSnapshot(left.chatDiffSnapshot, right.chatDiffSnapshot)
       && sameMessage(left.message, right.message)
   }
 
@@ -412,7 +430,15 @@ const TranscriptSingleRow = memo(function TranscriptSingleRow({
         rendered = <RawJsonMessage key={message.id} json={message.json} />
         break
       case "system_init":
-        rendered = isFirstSystem ? <SystemMessage key={message.id} message={message} rawJson={message.debugRaw} /> : null
+        rendered = isFirstSystem ? (
+          <SystemMessage
+            key={message.id}
+            message={message}
+            rawJson={message.debugRaw}
+            localPath={localPath}
+            chatDiffSnapshot={chatDiffSnapshot}
+          />
+        ) : null
         break
       case "account_info":
         rendered = isFirstAccount ? <AccountInfoMessage key={message.id} message={message} /> : null
@@ -507,6 +533,7 @@ const TranscriptSingleRow = memo(function TranscriptSingleRow({
   && prev.isLatestTodoWrite === next.isLatestTodoWrite
   && prev.hideResult === next.hideResult
   && prev.isFinalStatus === next.isFinalStatus
+  && sameChatDiffSnapshot(prev.chatDiffSnapshot, next.chatDiffSnapshot)
   && prev.onAskUserQuestionSubmit === next.onAskUserQuestionSubmit
   && prev.onExitPlanModeConfirm === next.onExitPlanModeConfirm
   && sameMessage(prev.message, next.message)
