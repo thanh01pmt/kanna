@@ -410,7 +410,7 @@ export function ChangelogSection({
                   aria-label="View release on GitHub"
                   className={cn(
                     buttonVariants({ variant: "ghost", size: "icon-sm" }),
-                    "h-8 w-8 shrink-0 rounded-md hover:!bg-transparent hover:border-border/0"
+                    "h-8 w-8 shrink-0 rounded-md hover:bg-transparent! hover:border-border/0"
                   )}
                 >
                   <GitHubIcon className="h-4 w-4" />
@@ -1845,7 +1845,7 @@ export function WorkflowSection({ state }: { state: KannaState }) {
         </div>
       ) : (
         <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-4 text-sm text-yellow-600 dark:text-yellow-400 flex items-start gap-2">
-          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <div>
             Workflow import is available globally in Settings. Select a project from the sidebar to register workflows, pin versions, and view readiness states.
           </div>
@@ -4186,9 +4186,9 @@ export function SettingsPage() {
 
         <div className="min-w-0 flex-1 overflow-y-auto">
           <div className="border-b border-border py-2 md:hidden">
-            <div className="overflow-x-auto pr-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="overflow-x-auto pr-4 scrollbar-none [&::-webkit-scrollbar]:hidden">
               <div className="flex min-w-max items-center gap-2">
-                <div className=" sticky left-0 bg-gradient-to-r from-background via-background/80 to-transparent px-2  py-1">
+                <div className=" sticky left-0 bg-linear-to-r from-background via-background/80 to-transparent px-2  py-1">
                 <button
                   type="button"
                   onClick={state.openSidebar}
@@ -5107,7 +5107,7 @@ export function SettingsPage() {
 
             {state.commandError ? (
               <div className="mx-auto mt-4 flex max-w-4xl items-start gap-3 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-                <Info className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <Info className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>{state.commandError}</span>
               </div>
             ) : null}
@@ -5117,7 +5117,7 @@ export function SettingsPage() {
       </div>
 
       {showFooter ? (
-        <div className="absolute bottom-0 left-0 right-0 border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <div className="absolute bottom-0 left-0 right-0 border-t border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/80">
           <div className="px-6 py-[14.25px]">
             <div className="grid gap-3 text-xs text-muted-foreground grid-cols-2 lg:grid-cols-4">
               <div>
@@ -5303,7 +5303,7 @@ export function SettingsPage() {
         <DialogContent size="lg">
           <DialogBody className="space-y-4">
             <DialogTitle>Validation Error</DialogTitle>
-            <pre className="max-h-[60vh] overflow-auto rounded-lg border border-border bg-muted p-3 text-xs font-mono whitespace-pre-wrap break-words">
+            <pre className="max-h-[60vh] overflow-auto rounded-lg border border-border bg-muted p-3 text-xs font-mono whitespace-pre-wrap wrap-break-word">
               {llmValidationErrorText}
             </pre>
           </DialogBody>
