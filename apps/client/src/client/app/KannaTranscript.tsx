@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useMemo, useRef, useState } from "react"
 import type { AskUserQuestionItem, ProcessedToolCall } from "../components/messages/types"
-import type { AskUserQuestionAnswerMap, ChatAttachment, HydratedTranscriptMessage } from "@kanna/shared/types"
+import type { AskUserQuestionAnswerMap, ChatAttachment, ChatDiffSnapshot, HydratedTranscriptMessage } from "@kanna/shared/types"
 import { UserMessage } from "../components/messages/UserMessage"
 import { RawJsonMessage } from "../components/messages/RawJsonMessage"
 import { SystemMessage } from "../components/messages/SystemMessage"
@@ -41,6 +41,7 @@ export interface ResolvedSingleTranscriptRow {
   isLatestTodoWrite: boolean
   hideResult: boolean
   isFinalStatus: boolean
+  chatDiffSnapshot?: ChatDiffSnapshot | null
 }
 
 export interface ResolvedToolGroupTranscriptRow {
@@ -365,6 +366,7 @@ interface TranscriptSingleRowProps {
   index: number
   isLoading: boolean
   localPath?: string
+  chatDiffSnapshot?: ChatDiffSnapshot | null
   isFirstSystem: boolean
   isFirstAccount: boolean
   isLatestAskUserQuestion: boolean
@@ -387,6 +389,7 @@ const TranscriptSingleRow = memo(function TranscriptSingleRow({
   index,
   isLoading,
   localPath,
+  chatDiffSnapshot,
   isFirstSystem,
   isFirstAccount,
   isLatestAskUserQuestion,
@@ -458,7 +461,7 @@ const TranscriptSingleRow = memo(function TranscriptSingleRow({
         rendered = <ToolCallMessage key={message.id} message={message} isLoading={isLoading} localPath={localPath} />
         break
       case "result":
-        rendered = hideResult ? null : <ResultMessage key={message.id} message={message} />
+        rendered = hideResult ? null : <ResultMessage key={message.id} message={message} chatDiffSnapshot={chatDiffSnapshot} />
         break
       case "context_window_updated":
         rendered = null
@@ -613,6 +616,7 @@ interface KannaTranscriptProps {
   messages: HydratedTranscriptMessage[]
   isLoading: boolean
   localPath?: string
+  chatDiffSnapshot?: ChatDiffSnapshot | null
   latestToolIds: Record<string, string | null>
   onOpenLocalLink: (target: OpenLocalLinkTarget) => void
   onAskUserQuestionSubmit: (
@@ -627,6 +631,7 @@ interface KannaTranscriptProps {
 interface KannaTranscriptRowProps {
   row: ResolvedTranscriptRow
   toolGroupExpanded?: boolean
+  chatDiffSnapshot?: ChatDiffSnapshot | null
   onToolGroupExpandedChange: (groupId: string, next: boolean) => void
   onAskUserQuestionSubmit: (
     toolUseId: string,
@@ -640,6 +645,7 @@ interface KannaTranscriptRowProps {
 export const KannaTranscriptRow = memo(function KannaTranscriptRow({
   row,
   toolGroupExpanded,
+  chatDiffSnapshot,
   onToolGroupExpandedChange,
   onAskUserQuestionSubmit,
   onExitPlanModeConfirm,
@@ -665,6 +671,7 @@ export const KannaTranscriptRow = memo(function KannaTranscriptRow({
       index={row.index}
       isLoading={row.isLoading}
       localPath={row.localPath}
+      chatDiffSnapshot={chatDiffSnapshot}
       isFirstSystem={row.isFirstSystem}
       isFirstAccount={row.isFirstAccount}
       isLatestAskUserQuestion={row.isLatestAskUserQuestion}
@@ -718,6 +725,7 @@ function KannaTranscriptImpl({
   messages,
   isLoading,
   localPath,
+  chatDiffSnapshot,
   latestToolIds,
   onOpenLocalLink,
   onAskUserQuestionSubmit,
@@ -751,6 +759,7 @@ function KannaTranscriptImpl({
           <KannaTranscriptRow
             row={row}
             toolGroupExpanded={row.kind === "tool-group" ? (toolGroupExpanded[row.id] ?? false) : undefined}
+            chatDiffSnapshot={chatDiffSnapshot}
             onToolGroupExpandedChange={handleToolGroupExpandedChange}
             onAskUserQuestionSubmit={onAskUserQuestionSubmit}
             onExitPlanModeConfirm={onExitPlanModeConfirm}

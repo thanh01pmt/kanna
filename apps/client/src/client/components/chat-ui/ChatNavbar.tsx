@@ -1,5 +1,5 @@
 import { type MouseEvent as ReactMouseEvent } from "react"
-import { Check, Flower, Loader2, Menu, MoreHorizontal, PanelLeft, PanelRight, SquarePen, Terminal, UserRoundPlus } from "lucide-react"
+import { Check, Flower, ListTodo, Loader2, Menu, MoreHorizontal, PanelLeft, PanelRight, SquarePen, Terminal, UserRoundPlus } from "lucide-react"
 import type { EditorOpenSettings, EditorPreset, OpenExternalAction } from "@kanna/shared/protocol"
 import { Button } from "../ui/button"
 import { CardHeader } from "../ui/card"
@@ -144,6 +144,8 @@ export function ChatNavbar({
   editorShortcut,
   terminalShortcut,
   rightSidebarShortcut,
+  progressPopoverOpen = false,
+  onToggleProgressPopover,
 }: Props) {
   const isMac = platform === "darwin"
   const rightPanelVisible = rightPanel !== "hidden"
@@ -265,6 +267,22 @@ export function ChatNavbar({
                     ) : (
                       <UserRoundPlus strokeWidth={2} className="h-4" />
                     )}
+                  </Button>
+                ) : null}
+                {onToggleProgressPopover ? (
+                  <Button
+                    id="agent-progress-toggle"
+                    variant="ghost"
+                    size="none"
+                    onClick={onToggleProgressPopover}
+                    title="Agent progress"
+                    aria-label="Agent progress"
+                    className={cn(
+                      "border flex flex-row items-center justify-center w-[38px] h-9 border-border/0 hover:!border-border/0 hover:!bg-transparent text-muted-foreground hover:text-foreground",
+                      progressPopoverOpen && "text-foreground bg-accent/30"
+                    )}
+                  >
+                    <ListTodo strokeWidth={2} className="h-4 w-4" />
                   </Button>
                 ) : null}
                 {onToggleGitPanel ? (

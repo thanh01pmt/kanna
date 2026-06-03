@@ -1,4 +1,5 @@
-import { Activity, AlertTriangle, CheckCircle2, CircleDollarSign, Clock3, GitCommitHorizontal, PieChart, X } from "lucide-react"
+import { useState } from "react"
+import { Activity, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, CircleDollarSign, Clock3, GitCommitHorizontal, PieChart, Route, X } from "lucide-react"
 import type { TranscriptEntry } from "@kanna/shared/types"
 import { deriveChatDiagnostics, type ChatDiagnosticStep } from "../../lib/chatDiagnostics"
 import { formatContextWindowTokens } from "../../lib/contextWindow"
@@ -25,6 +26,12 @@ function formatDuration(ms: number) {
 function formatCost(value: number) {
   if (!Number.isFinite(value) || value <= 0) return "$0.000000"
   return `$${value.toFixed(6)}`
+}
+
+function formatTime(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
 }
 
 function percent(part: number, total: number) {
@@ -59,6 +66,7 @@ function formatStepKind(kind: ChatDiagnosticStep["kind"]) {
 }
 
 export function ChatDiagnosticsPanel({ messages, onClose }: ChatDiagnosticsPanelProps) {
+  const [expandedStepIds, setExpandedStepIds] = useState<Set<string>>(() => new Set())
   const diagnostics = deriveChatDiagnostics(messages)
   const tokenTotal = Math.max(
     diagnostics.tokens.inputKnown
@@ -76,6 +84,18 @@ export function ChatDiagnosticsPanel({ messages, onClose }: ChatDiagnosticsPanel
   const donutBackground = tokenTotal > 0
     ? `conic-gradient(var(--logo) 0deg ${inputStop * 3.6}deg, rgb(16 185 129) ${inputStop * 3.6}deg ${outputStop * 3.6}deg, rgb(168 85 247) ${outputStop * 3.6}deg ${toolStop * 3.6}deg, hsl(var(--muted)) ${toolStop * 3.6}deg 360deg)`
     : "hsl(var(--muted))"
+
+  const toggleStep = (stepId: string) => {
+    setExpandedStepIds((current) => {
+      const next = new Set(current)
+      if (next.has(stepId)) {
+        next.delete(stepId)
+      } else {
+        next.add(stepId)
+      }
+      return next
+    })
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
@@ -164,6 +184,67 @@ export function ChatDiagnosticsPanel({ messages, onClose }: ChatDiagnosticsPanel
             )) : (
               <div className="rounded-md border border-border/70 bg-card/45 p-4 text-sm text-muted-foreground">
                 No token-bearing steps yet.
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="mt-5">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
+              <Route className="h-4 w-4" />
+              Agent trajectory
+            </div>
+            <span className="text-xs text-muted-foreground">{diagnostics.steps.length} steps</span>
+          </div>
+          <div className="space-y-2">
+            {diagnostics.steps.length > 0 ? diagnostics.steps.map((step) => {
+              const isExpanded = expandedStepIds.has(step.id)
+              const canExpand = Boolean(step.detail && step.detail !== step.preview)
+              return (
+                <div key={step.id} className="rounded-md border border-border/70 bg-card/45">
+                  <button
+                    type="button"
+                    className="flex w-full items-start gap-2 px-3 py-3 text-left"
+                    onClick={() => canExpand && toggleStep(step.id)}
+                    disabled={!canExpand}
+                  >
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center text-muted-foreground">
+                      {canExpand ? (
+                        isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />
+                      ) : (
+                        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/50" />
+                      )}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="text-xs font-semibold text-muted-foreground">#{step.index}</span>
+                          <span className={cn("rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase", stepTone(step))}>
+                            {formatStepKind(step.kind)}
+                          </span>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground">
+                          {step.tokenEstimate ? <span>{formatContextWindowTokens(step.tokenEstimate)} tkn</span> : null}
+                          <span>{formatTime(step.timestamp)}</span>
+                        </div>
+                      </div>
+                      <div className="mt-2 truncate text-sm font-medium text-foreground">{step.label}</div>
+                      {step.preview ? <div className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{step.preview}</div> : null}
+                    </div>
+                  </button>
+                  {isExpanded && step.detail ? (
+                    <div className="border-t border-border/60 bg-background/55 px-3 py-3">
+                      <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/35 p-3 text-xs leading-5 text-muted-foreground">
+                        {step.detail}
+                      </pre>
+                    </div>
+                  ) : null}
+                </div>
+              )
+            }) : (
+              <div className="rounded-md border border-border/70 bg-card/45 p-4 text-sm text-muted-foreground">
+                No trajectory data yet.
               </div>
             )}
           </div>

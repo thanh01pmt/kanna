@@ -17,6 +17,7 @@ import {
   useStableResolvedRows,
 } from "../KannaTranscript"
 import type { KannaState } from "../useKannaState"
+import type { ChatDiffSnapshot } from "@kanna/shared/types"
 import {
   CHAT_NAVBAR_OFFSET_PX,
   EMPTY_STATE_TEXT,
@@ -45,6 +46,7 @@ interface ChatTranscriptViewportProps {
   onAskUserQuestionSubmit: KannaState["handleAskUserQuestion"]
   onExitPlanModeConfirm: KannaState["handleExitPlanMode"]
   onCliPermissionRespond: KannaState["handleCliPermission"]
+  chatDiffSnapshot: ChatDiffSnapshot | null
   showScrollButton: boolean
   onIsAtEndChange: (isAtEnd: boolean) => void
   scrollToBottom: () => void
@@ -80,6 +82,7 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
   onAskUserQuestionSubmit,
   onExitPlanModeConfirm,
   onCliPermissionRespond,
+  chatDiffSnapshot,
   showScrollButton,
   onIsAtEndChange,
   scrollToBottom,
@@ -217,6 +220,7 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
       <KannaTranscriptRow
         row={item}
         toolGroupExpanded={item.kind === "tool-group" ? (toolGroupExpanded[item.id] ?? false) : undefined}
+        chatDiffSnapshot={chatDiffSnapshot}
         onToolGroupExpandedChange={handleToolGroupExpandedChange}
         onAskUserQuestionSubmit={onAskUserQuestionSubmit}
         onExitPlanModeConfirm={onExitPlanModeConfirm}

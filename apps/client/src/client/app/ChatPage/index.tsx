@@ -9,8 +9,11 @@ import type { ChatInputHandle } from "../../components/chat-ui/ChatInput"
 import { ChatNavbar } from "../../components/chat-ui/ChatNavbar"
 import { BrowserPanel } from "../../components/chat-ui/BrowserPanel"
 import { ChatDiagnosticsPanel } from "../../components/chat-ui/ChatDiagnosticsPanel"
+import { ChatStatusStrip } from "../../components/chat-ui/ChatStatusStrip"
 import { MarkdownSlideViewer } from "../../components/chat-ui/MarkdownSlideViewer"
 import { GitPanel } from "../../components/chat-ui/GitPanel"
+import { AgentProgressPopover } from "../../components/chat-ui/AgentProgressPopover"
+import type { TodoItem } from "@kanna/shared/types"
 import { useAppDialog } from "../../components/ui/app-dialog"
 import { Button } from "../../components/ui/button"
 import { Card, CardContent } from "../../components/ui/card"
@@ -797,12 +800,66 @@ export function ChatPage() {
   const [workflowDefinitions, setWorkflowDefinitions] = useState<WorkflowDefinitionSummary[]>([])
   const [proposedManifest, setProposedManifest] = useState<import("@kanna/shared/workflow-schema").WorkflowManifest | null>(null)
   const [isStartingWorkflow, setIsStartingWorkflow] = useState(false)
+  const [progressPopoverOpen, setProgressPopoverOpen] = useState(false)
+
+  const handleToggleProgressPopover = useCallback(() => {
+    setProgressPopoverOpen((prev) => !prev)
+  }, [])
+
   const showEmptyState = state.messages.length === 0 && state.runtime?.title === "New Chat"
   const projectId = state.activeProjectId
+
+  // Derive active todos from the latest TodoWrite tool call
+  const activeTodos = useMemo<TodoItem[]>(() => {
+    const latestTodoWriteId = state.latestToolIds.TodoWrite
+    if (!latestTodoWriteId) return []
+    const latestTodoWriteMessage = state.messages.find((m) => m.id === latestTodoWriteId)
+    if (latestTodoWriteMessage?.kind === "tool" && latestTodoWriteMessage.toolKind === "todo_write") {
+      return (latestTodoWriteMessage.input?.todos as TodoItem[]) ?? []
+    }
+    return []
+  }, [state.latestToolIds.TodoWrite, state.messages])
+
+  // Derive unique files read/written by the agent as sources
+  const activeSources = useMemo<string[]>(() => {
+    const unique = new Set<string>()
+    for (const msg of state.messages) {
+      if (msg.kind === "tool") {
+        const filePath = msg.input?.TargetFile || msg.input?.AbsolutePath || msg.input?.SearchPath
+        if (filePath && typeof filePath === "string") {
+          const parts = filePath.split("/")
+          const fileName = parts[parts.length - 1]
+          if (fileName && !fileName.startsWith(".") && !fileName.includes("node_modules")) {
+            unique.add(fileName)
+          }
+        }
+      }
+    }
+    return Array.from(unique)
+  }, [state.messages])
+
+  // Derive the active project name from localPath
+  const activeProjectName = useMemo(() => {
+    const activeProjectLocalPath = state.runtime?.localPath ?? state.navbarLocalPath ?? ""
+    if (!activeProjectLocalPath) return "No project"
+    const parts = activeProjectLocalPath.split("/")
+    return parts[parts.length - 1] || activeProjectLocalPath
+  }, [state.runtime?.localPath, state.navbarLocalPath])
+
   const projectTerminalLayout = useTerminalLayoutStore((store) => (projectId ? store.projects[projectId] : undefined))
   const terminalLayout = projectTerminalLayout ?? DEFAULT_PROJECT_TERMINAL_LAYOUT
   const projectRightSidebarVisibility = useRightSidebarStore((store) => (projectId ? store.projects[projectId] : undefined))
   const rightSidebarVisibility = projectRightSidebarVisibility ?? DEFAULT_RIGHT_SIDEBAR_VISIBILITY_STATE
+
+  const activeRightPanel = projectId ? rightSidebarVisibility.rightPanel : "hidden"
+
+  // Auto-close progress popover when right sidebar is toggled open
+  useEffect(() => {
+    if (activeRightPanel !== "hidden") {
+      setProgressPopoverOpen(false)
+    }
+  }, [activeRightPanel])
+
   const globalRightSidebarSize = useRightSidebarStore((store) => store.size)
   const addTerminal = useTerminalLayoutStore((store) => store.addTerminal)
   const removeTerminal = useTerminalLayoutStore((store) => store.removeTerminal)
@@ -1169,7 +1226,6 @@ export function ChatPage() {
   const hasTerminals = terminalLayout.terminals.length > 0
   const showTerminalPane = Boolean(projectId && terminalLayout.isVisible && hasTerminals)
   const shouldRenderTerminalLayout = Boolean(projectId && hasTerminals)
-  const activeRightPanel = projectId ? rightSidebarVisibility.rightPanel : "hidden"
   const showRightSidebar = Boolean(projectId && activeRightPanel !== "hidden")
   const showGitPanel = Boolean(projectId && activeRightPanel === "git")
   const shouldRenderRightSidebarLayout = Boolean(projectId)
@@ -1625,12 +1681,39 @@ export function ChatPage() {
           editorShortcut={resolvedKeybindings.bindings.openInEditor}
           terminalShortcut={resolvedKeybindings.bindings.toggleEmbeddedTerminal}
           rightSidebarShortcut={resolvedKeybindings.bindings.toggleRightSidebar}
+          progressPopoverOpen={progressPopoverOpen}
+          onToggleProgressPopover={projectId ? handleToggleProgressPopover : undefined}
         />
+        {projectId ? (
+          <ChatStatusStrip
+            projectName={activeProjectName}
+            branchName={state.chatDiffSnapshot?.branchName || "main"}
+            todos={activeTodos}
+            sources={activeSources}
+            diffs={state.chatDiffSnapshot}
+            contextWindowSnapshot={contextWindowSnapshot}
+            progressPopoverOpen={progressPopoverOpen}
+            onToggleProgressPopover={handleToggleProgressPopover}
+            onToggleGitPanel={handleToggleRightSidebar}
+          />
+        ) : null}
+        {progressPopoverOpen && (
+          <AgentProgressPopover
+            todos={activeTodos}
+            sources={activeSources}
+            diffs={state.chatDiffSnapshot}
+            projectName={activeProjectName}
+            branchName={state.chatDiffSnapshot?.branchName || "main"}
+            onClose={() => setProgressPopoverOpen(false)}
+            onToggleGitPanel={handleToggleRightSidebar}
+          />
+        )}
         <ChatTranscriptViewport
           activeChatId={state.activeChatId}
           listRef={transcriptListRef}
           messages={state.messages}
           queuedMessages={state.queuedMessages}
+          chatDiffSnapshot={state.chatDiffSnapshot}
           transcriptPaddingBottom={transcriptPaddingBottom}
           localPath={state.runtime?.localPath}
           latestToolIds={state.latestToolIds}
