@@ -132,6 +132,19 @@ describe("processTranscriptMessages", () => {
     expect(messages[0].usage.compactsAutomatically).toBe(true)
   })
 
+  test("preserves assistant thinking entries", () => {
+    const messages = processTranscriptMessages([
+      entry({
+        kind: "assistant_thinking",
+        thinking: "I should analyze the package.json to identify the dependencies.",
+      }),
+    ])
+
+    expect(messages[0]?.kind).toBe("assistant_thinking")
+    if (messages[0]?.kind !== "assistant_thinking") throw new Error("unexpected message")
+    expect(messages[0].thinking).toBe("I should analyze the package.json to identify the dependencies.")
+  })
+
   test("preserves structured Claude ask-user-question results when a later echoed tool result arrives", () => {
     const messages = processTranscriptMessages([
       entry({

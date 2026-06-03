@@ -6,6 +6,7 @@ import { RawJsonMessage } from "../components/messages/RawJsonMessage"
 import { SystemMessage } from "../components/messages/SystemMessage"
 import { AccountInfoMessage } from "../components/messages/AccountInfoMessage"
 import { TextMessage } from "../components/messages/TextMessage"
+import { ThinkingMessage } from "../components/messages/ThinkingMessage"
 import { AskUserQuestionMessage } from "../components/messages/AskUserQuestionMessage"
 import { ExitPlanModeMessage } from "../components/messages/ExitPlanModeMessage"
 import { CliPermissionRequestMessage } from "../components/messages/CliPermissionRequestMessage"
@@ -206,6 +207,34 @@ export function buildTranscriptRenderItems(
       continue
     }
 
+    if (renderState?.shouldRender && message.kind === "assistant_thinking") {
+      const startIndex = index
+      const thinkingMessages: HydratedTranscriptMessage[] = [message]
+      index += 1
+
+      while (index < messages.length) {
+        const nextMessage = messages[index]
+        const nextRenderState = renderStates[index]
+        if (!nextRenderState?.shouldRender || nextMessage.kind !== "assistant_thinking") break
+        thinkingMessages.push(nextMessage)
+        index += 1
+      }
+
+      if (thinkingMessages.length > 1) {
+        result.push({
+          type: "single",
+          message: {
+            ...message,
+            thinking: thinkingMessages.map((m) => m.kind === "assistant_thinking" ? m.thinking : "").join(""),
+          },
+          index: startIndex,
+        })
+      } else {
+        result.push({ type: "single", message, index: startIndex })
+      }
+      continue
+    }
+
     result.push({ type: "single", message, index })
     index += 1
   }
@@ -286,6 +315,8 @@ function sameMessage(left: HydratedTranscriptMessage, right: HydratedTranscriptM
       return right.kind === "account_info" && JSON.stringify(left.accountInfo) === JSON.stringify(right.accountInfo)
     case "assistant_text":
       return right.kind === "assistant_text" && left.text === right.text
+    case "assistant_thinking":
+      return right.kind === "assistant_thinking" && left.thinking === right.thinking
     case "tool":
       return right.kind === "tool"
         && left.toolKind === right.toolKind
@@ -445,6 +476,9 @@ const TranscriptSingleRow = memo(function TranscriptSingleRow({
         break
       case "assistant_text":
         rendered = <TextMessage key={message.id} message={message} />
+        break
+      case "assistant_thinking":
+        rendered = <ThinkingMessage key={message.id} message={message} />
         break
       case "tool":
         if (message.toolKind === "ask_user_question") {
