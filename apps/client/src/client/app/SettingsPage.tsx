@@ -10,7 +10,6 @@ import {
   Menu,
   Monitor,
   Moon,
-  MessageSquareQuote,
   Search,
   Settings2,
   Workflow,
@@ -61,7 +60,6 @@ import {
   type ProviderCatalogEntry,
   type InstalledSkillsSnapshot,
   type ProjectMcpConfig,
-  type ProjectMcpServerConfig,
   type SkillInstallResult,
   type SkillSearchResult,
   type SkillSearchSnapshot,
@@ -657,7 +655,7 @@ export function SkillsSection({
       setDiscoveredError(null)
       const result = await socket.command<DiscoveredSkill[]>({
         type: "settings.listSkills",
-        agent: defaultProvider,
+        agent: defaultProvider!,
         projectId: state.activeProjectId || undefined,
       })
       setDiscoveredSkills(result)
@@ -698,7 +696,7 @@ export function SkillsSection({
       setDiscoveredError(null)
       await socket.command({
         type: "settings.saveSkills",
-        agent: defaultProvider,
+        agent: defaultProvider!,
         skills: discoveredSkills,
       })
       setOriginalDiscoveredSkills(discoveredSkills)
@@ -2425,7 +2423,7 @@ export function WorkflowSection({ state }: { state: KannaState }) {
             />
           </DialogBody>
           <DialogFooter>
-            <Button variant="outline" size="sm" onClick={closeWorkflowDetails} disabled={isSavingWorkflowDetails}>
+            <Button variant="outline" size="sm" onClick={() => closeWorkflowDetails()} disabled={isSavingWorkflowDetails}>
               {workflowDetailsMode === "edit" ? "Cancel" : "Close"}
             </Button>
             {workflowDetailsMode === "edit" && (
@@ -2444,7 +2442,6 @@ export function WorkflowSection({ state }: { state: KannaState }) {
   )
 }
 
-type McpServerConfig = ProjectMcpServerConfig
 type McpConfig = ProjectMcpConfig
 
 function parseMcpConfig(content: string): McpConfig {
@@ -2532,6 +2529,8 @@ export function McpSection({
   const [loading, setLoading] = useState(false)
   const [savingServerName, setSavingServerName] = useState<string | null>(null)
   const [mcpError, setMcpError] = useState<string | null>(null)
+  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+  void setSavingServerName
   const [serverName, setServerName] = useState("custom-server")
   const [serverCommand, setServerCommand] = useState("")
   const [serverArgs, setServerArgs] = useState("")
@@ -4093,43 +4092,6 @@ export function SettingsPage() {
       : selectedSection.subtitle
   const showFooter = !isConnecting
   const llmValidationErrorText = llmValidationError ? JSON.stringify(llmValidationError, null, 2) : ""
-  const llmValidationDescription = (
-    <>
-      <span>
-        Use an OpenAI-compatible API for title and commit message generation before Claude and Codex. Stored in {llmProvider?.filePathDisplay ?? "the active llm-provider.json file"}.
-      </span>
-      <span
-        className={cn(
-          "mt-2 block text-sm font-medium",
-          llmValidationStatus === "valid"
-            ? "text-emerald-600 dark:text-emerald-400"
-            : llmValidationStatus === "invalid"
-              ? "text-destructive"
-              : "hidden"
-        )}
-      >
-        {llmValidationStatus === "valid" ? (
-          "Credentials valid & saved"
-        ) : llmValidationStatus === "invalid" ? (
-          <>
-            <span>Credentials invalid.</span>
-            {llmValidationError ? (
-              <>
-                {" "}
-                <button
-                  type="button"
-                  onClick={() => setLlmValidationDialogOpen(true)}
-                  className="underline underline-offset-2"
-                >
-                  See error
-                </button>
-              </>
-            ) : null}
-          </>
-        ) : null}
-      </span>
-    </>
-  )
 
   async function handleSidebarSignOut() {
     if (signingOut) return
@@ -5081,11 +5043,11 @@ export function SettingsPage() {
                     })}
                   </div>
                 ) : selectedPage === "skills" ? (
-                  <SkillsSection state={state} defaultProvider={defaultProvider} />
+                  <SkillsSection state={state} defaultProvider={defaultProvider === "last_used" ? undefined : defaultProvider} />
                 ) : selectedPage === "workflow" ? (
                   <WorkflowSection state={state} />
                 ) : selectedPage === "mcp" ? (
-                  <McpSection state={state} defaultProvider={defaultProvider} />
+                  <McpSection state={state} defaultProvider={defaultProvider === "last_used" ? undefined : defaultProvider} />
                 ) : (
                   <ChangelogSection
                     status={changelogStatus}
