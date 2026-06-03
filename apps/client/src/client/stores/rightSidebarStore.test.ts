@@ -31,9 +31,13 @@ describe("rightSidebarStore", () => {
 
     expect(useRightSidebarStore.getState().projects[PROJECT_ID]).toEqual({
       rightPanel: "git",
+      openTabs: ["tool:files", "tool:git"],
+      activeTab: "tool:git",
     })
     expect(useRightSidebarStore.getState().projects["project-2"]).toEqual({
       rightPanel: "browser",
+      openTabs: ["tool:files", "tool:browser"],
+      activeTab: "tool:browser",
     })
     expect(useRightSidebarStore.getState().size).toBe(430)
   })
@@ -90,9 +94,13 @@ describe("rightSidebarStore", () => {
       projects: {
         [PROJECT_ID]: {
           rightPanel: "git",
+          openTabs: ["tool:files"],
+          activeTab: "tool:files",
         },
         "project-2": {
           rightPanel: "hidden",
+          openTabs: ["tool:files"],
+          activeTab: "tool:files",
         },
       },
       projectUi: {},
@@ -114,6 +122,8 @@ describe("rightSidebarStore", () => {
       projects: {
         [PROJECT_ID]: {
           rightPanel: "browser",
+          openTabs: ["tool:files"],
+          activeTab: "tool:files",
         },
       },
       projectUi: {},
@@ -192,12 +202,13 @@ describe("rightSidebarStore", () => {
       projects: {
         [PROJECT_ID]: {
           rightPanel: "git",
+          openTabs: ["tool:files"],
+          activeTab: "tool:files",
         },
       },
       projectUi: {
         [PROJECT_ID]: {
           viewMode: "changes",
-          workflowDensityMode: "normal",
           collapsedPaths: { "a.ts": false },
           summary: "feat: one",
           description: "body",

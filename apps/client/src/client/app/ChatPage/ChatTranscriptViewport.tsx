@@ -219,6 +219,7 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
     <div className="mx-auto w-full max-w-[800px] pb-5" data-transcript-row-id={item.id}>
       <KannaTranscriptRow
         row={item}
+        messages={messages}
         toolGroupExpanded={item.kind === "tool-group" ? (toolGroupExpanded[item.id] ?? false) : undefined}
         chatDiffSnapshot={chatDiffSnapshot}
         onToolGroupExpandedChange={handleToolGroupExpandedChange}
@@ -227,7 +228,7 @@ export const ChatTranscriptViewport = memo(function ChatTranscriptViewport({
         onCliPermissionRespond={onCliPermissionRespond}
       />
     </div>
-  ), [handleToolGroupExpandedChange, onAskUserQuestionSubmit, onCliPermissionRespond, onExitPlanModeConfirm, toolGroupExpanded])
+  ), [messages, handleToolGroupExpandedChange, onAskUserQuestionSubmit, onCliPermissionRespond, onExitPlanModeConfirm, toolGroupExpanded])
 
   const listHeader = (
     <div className="mx-auto w-full max-w-[800px]" style={{ paddingTop: `${headerOffsetPx}px` }}>

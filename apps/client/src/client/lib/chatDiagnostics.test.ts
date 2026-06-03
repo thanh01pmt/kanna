@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { TranscriptEntry } from "@kanna/shared/types"
-import { deriveChatDiagnostics } from "./chatDiagnostics"
+import { deriveChatDiagnostics, deriveSessionTokenTotals } from "./chatDiagnostics"
 
 function entry(partial: Partial<TranscriptEntry>, createdAt = Date.now()): TranscriptEntry {
   return {
@@ -119,5 +119,62 @@ describe("deriveChatDiagnostics", () => {
     expect(diagnostics.summary.userPromptCount).toBe(0)
     expect(diagnostics.summary.latestStatus).toBe("done")
     expect(diagnostics.steps).toHaveLength(2)
+  })
+
+  test("deriveSessionTokenTotals aggregates token usage across multiple turns", () => {
+    const messages = [
+      entry({ kind: "user_prompt", content: "first prompt" }, 1),
+      entry({ kind: "assistant_text", text: "first response" }, 2),
+      entry({
+        kind: "context_window_updated",
+        usage: {
+          usedTokens: 600,
+          totalProcessedTokens: 1200,
+          inputTokens: 500,
+          cachedInputTokens: 100,
+          outputTokens: 80,
+          reasoningOutputTokens: 20,
+          compactsAutomatically: false,
+        },
+      }, 3),
+      entry({ kind: "result", success: true, durationMs: 1000, result: "done" }, 4),
+
+      entry({ kind: "user_prompt", content: "second prompt" }, 5),
+      entry({ kind: "assistant_text", text: "second response" }, 6),
+      entry({
+        kind: "context_window_updated",
+        usage: {
+          usedTokens: 1000,
+          totalProcessedTokens: 2000,
+          inputTokens: 800,
+          cachedInputTokens: 200,
+          outputTokens: 150,
+          reasoningOutputTokens: 50,
+          compactsAutomatically: false,
+        },
+      }, 7),
+      entry({ kind: "result", success: true, durationMs: 1200, result: "done" }, 8),
+    ]
+
+    const totals = deriveSessionTokenTotals(messages)
+    expect(totals.total).toBe(3200) // 1200 + 2000
+    expect(totals.input).toBe(1300) // 500 + 800
+    expect(totals.output).toBe(230) // 80 + 150
+    expect(totals.cachedInput).toBe(300) // 100 + 200
+    expect(totals.reasoningOutput).toBe(70) // 20 + 50
+    expect(totals.hasEstimates).toBe(false)
+  })
+
+  test("deriveSessionTokenTotals falls back to character estimation when no context update is present", () => {
+    const messages = [
+      entry({ kind: "user_prompt", content: "hello" }, 1), // 5 chars -> 2 tokens
+      entry({ kind: "assistant_text", text: "world" }, 2), // 5 chars -> 2 tokens
+    ]
+
+    const totals = deriveSessionTokenTotals(messages)
+    expect(totals.total).toBe(4) // 2 + 2
+    expect(totals.input).toBe(2)
+    expect(totals.output).toBe(2)
+    expect(totals.hasEstimates).toBe(true)
   })
 })

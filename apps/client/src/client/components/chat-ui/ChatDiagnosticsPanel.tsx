@@ -1,13 +1,13 @@
 import { useState } from "react"
 import { Activity, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, CircleDollarSign, Clock3, GitCommitHorizontal, PieChart, Route, X } from "lucide-react"
-import type { TranscriptEntry } from "@kanna/shared/types"
+import type { TranscriptEntry, HydratedTranscriptMessage } from "@kanna/shared/types"
 import { deriveChatDiagnostics, type ChatDiagnosticStep } from "../../lib/chatDiagnostics"
 import { formatContextWindowTokens } from "../../lib/contextWindow"
 import { cn } from "../../lib/utils"
 import { Button } from "../ui/button"
 
 interface ChatDiagnosticsPanelProps {
-  messages: readonly TranscriptEntry[]
+  messages: readonly (TranscriptEntry | HydratedTranscriptMessage)[]
   onClose: () => void
 }
 

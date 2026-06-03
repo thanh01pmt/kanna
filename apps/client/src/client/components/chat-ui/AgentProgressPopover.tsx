@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react"
+import React, { useState, useRef } from "react"
 import { 
   ChevronDown, 
   ChevronRight, 
@@ -15,7 +15,8 @@ import {
   X
 } from "lucide-react"
 import { cn } from "../../lib/utils"
-import type { TodoItem, ChatDiffSnapshot } from "@kanna/shared/types"
+import type { TodoItem, ChatDiffSnapshot, HydratedTranscriptMessage } from "@kanna/shared/types"
+import { deriveChatDiagnostics } from "../../lib/chatDiagnostics"
 
 interface AgentProgressPopoverProps {
   todos: TodoItem[]
@@ -26,6 +27,18 @@ interface AgentProgressPopoverProps {
   onClose: () => void
   onToggleGitPanel: () => void
   onCheckoutBranch?: () => void
+  messages?: HydratedTranscriptMessage[]
+}
+
+function formatDuration(ms: number) {
+  if (ms < 1000) return `${ms}ms`
+  const totalSeconds = Math.floor(ms / 1000)
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  if (hours > 0) return `${hours}h${minutes > 0 ? ` ${minutes}m` : ""}`
+  if (minutes > 0) return `${minutes}m${seconds > 0 ? ` ${seconds}s` : ""}`
+  return `${seconds}s`
 }
 
 export function AgentProgressPopover({
@@ -36,15 +49,19 @@ export function AgentProgressPopover({
   branchName,
   onClose,
   onToggleGitPanel,
-  onCheckoutBranch
+  onCheckoutBranch,
+  messages = []
 }: AgentProgressPopoverProps) {
   const [progressExpanded, setProgressExpanded] = useState(true)
   const [sourcesExpanded, setSourcesExpanded] = useState(true)
+  const [diagnosticsExpanded, setDiagnosticsExpanded] = useState(false)
   const popoverRef = useRef<HTMLDivElement>(null)
 
   const fileChangesCount = diffs?.files?.length ?? 0
   const additions = diffs?.files?.reduce((acc, f) => acc + (f.additions ?? 0), 0) ?? 0
   const deletions = diffs?.files?.reduce((acc, f) => acc + (f.deletions ?? 0), 0) ?? 0
+
+  const diagnostics = deriveChatDiagnostics(messages)
 
   return (
     <div 
@@ -55,7 +72,7 @@ export function AgentProgressPopover({
       )}
     >
       {/* Title & Close Header */}
-      <div className="flex items-center justify-between pb-1 border-b border-border/40">
+      <div className="flex items-center justify-between pb-1 border-b border-b-border/40">
         <div className="flex items-center gap-1.5">
           <SlidersHorizontal className="h-3.5 w-3.5 text-muted-foreground" />
           <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Agent Console</span>
@@ -226,6 +243,70 @@ export function AgentProgressPopover({
                   <span className="truncate pr-2 font-mono" title={source}>{source}</span>
                 </div>
               ))
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Divider */}
+      <div className="h-px bg-border/40" />
+
+      {/* Diagnostics Section */}
+      <div className="flex flex-col gap-1.5">
+        <button 
+          onClick={() => setDiagnosticsExpanded(!diagnosticsExpanded)}
+          className="flex items-center justify-between text-sm font-medium hover:text-foreground/80 text-foreground transition-colors w-full text-left py-0.5"
+        >
+          <div className="flex items-center gap-1.5">
+            <span className="font-semibold text-[13px]">Diagnostics</span>
+            {diagnostics.tokens.totalKnown > 0 && (
+              <span className="text-[10px] px-1.5 py-0.5 bg-accent/40 rounded-full font-medium text-muted-foreground">
+                {diagnostics.tokens.totalKnown.toLocaleString()} tokens
+              </span>
+            )}
+          </div>
+          {diagnosticsExpanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+        </button>
+
+        {diagnosticsExpanded && (
+          <div className="flex flex-col gap-2 mt-1 pl-1 text-xs text-muted-foreground">
+            <div className="grid grid-cols-2 gap-2 bg-accent/15 p-2 rounded-lg border border-border/20 font-mono text-[11px]">
+              <div>
+                <div className="text-[9px] uppercase text-muted-foreground/60 font-semibold">Total Cost</div>
+                <div className="font-bold text-foreground">${diagnostics.summary.totalCostUsd.toFixed(4)}</div>
+              </div>
+              <div>
+                <div className="text-[9px] uppercase text-muted-foreground/60 font-semibold">Total Duration</div>
+                <div className="font-bold text-foreground">{formatDuration(diagnostics.summary.totalDurationMs)}</div>
+              </div>
+              <div>
+                <div className="text-[9px] uppercase text-muted-foreground/60 font-semibold">Tool Calls</div>
+                <div className="font-bold text-foreground">{diagnostics.summary.toolCallCount} calls</div>
+              </div>
+              <div>
+                <div className="text-[9px] uppercase text-muted-foreground/60 font-semibold">Prompt Count</div>
+                <div className="font-bold text-foreground">{diagnostics.summary.userPromptCount} turns</div>
+              </div>
+            </div>
+
+            {/* Diagnostic Tips in Popover */}
+            {diagnostics.tips.length > 0 && (
+              <div className="space-y-1.5 mt-1">
+                {diagnostics.tips.map((tip, idx) => (
+                  <div 
+                    key={idx} 
+                    className={cn(
+                      "p-2 rounded border text-[10px] flex gap-1 items-start leading-tight",
+                      tip.kind === "warning" && "bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400",
+                      tip.kind === "info" && "bg-blue-500/10 border-blue-500/20 text-blue-600 dark:text-blue-400",
+                      tip.kind === "ok" && "bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400"
+                    )}
+                  >
+                    <span className="font-semibold block">{tip.title}:</span>
+                    <span>{tip.detail}</span>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         )}

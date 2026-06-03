@@ -60,7 +60,7 @@ export const DEFAULT_RIGHT_SIDEBAR_VISIBILITY_STATE: ProjectRightSidebarVisibili
   activeTab: "tool:files",
 }
 
-function createDefaultProjectVisibilityState(): ProjectRightSidebarVisibilityState {
+export function getDefaultRightSidebarVisibilityState(): ProjectRightSidebarVisibilityState {
   return { ...DEFAULT_RIGHT_SIDEBAR_VISIBILITY_STATE }
 }
 
@@ -101,12 +101,12 @@ function getProjectVisibilityState(
 ): ProjectRightSidebarVisibilityState {
   const existing = projects[projectId]
   if (!existing) {
-    return createDefaultProjectVisibilityState()
+    return getDefaultRightSidebarVisibilityState()
   }
   const openTabs = (existing.openTabs || ["tool:files"]).filter(t => t !== "launcher" && t !== "tool:launcher")
   const activeTab = existing.activeTab === "launcher" || existing.activeTab === "tool:launcher" ? "tool:files" : existing.activeTab
   return {
-    ...createDefaultProjectVisibilityState(),
+    ...getDefaultRightSidebarVisibilityState(),
     ...existing,
     openTabs,
     activeTab,

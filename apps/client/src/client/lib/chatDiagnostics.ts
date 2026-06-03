@@ -1,4 +1,4 @@
-import type { ContextWindowUsageSnapshot, TranscriptEntry } from "@kanna/shared/types"
+import type { ContextWindowUsageSnapshot } from "@kanna/shared/types"
 
 export type ChatDiagnosticStepKind =
   | "user_input"
@@ -19,7 +19,7 @@ export interface ChatDiagnosticTokenTotals {
   outputKnown: number
   reasoningOutputKnown: number
   toolEstimated: number
-  source: "context_window" | "estimated_tool_payload" | "none"
+  source: "context_window" | "estimated_tool_payload" | "none" | "estimated"
 }
 
 export interface ChatDiagnosticStep {
@@ -66,7 +66,9 @@ export interface ChatDiagnostics {
 const TOOL_ESTIMATE_CHARS_PER_TOKEN = 4
 const STEP_PREVIEW_MAX_LENGTH = 180
 
-function createdAtToIso(createdAt: number) {
+function createdAtToIso(createdAt: number | string | Date | undefined | null): string {
+  if (!createdAt) return new Date().toISOString()
+  if (typeof createdAt === "string") return createdAt
   return new Date(createdAt).toISOString()
 }
 
@@ -121,17 +123,17 @@ function getKnownUsageTotal(usage: ContextWindowUsageSnapshot): number {
   return Math.max(usage.totalProcessedTokens ?? 0, usage.usedTokens)
 }
 
-function getLatestUsage(entries: readonly TranscriptEntry[]) {
+function getLatestUsage(entries: readonly any[]) {
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index]
-    if (entry?.kind === "context_window_updated" && entry.usage.usedTokens > 0) {
+    if (entry?.kind === "context_window_updated" && entry.usage?.usedTokens > 0) {
       return entry.usage
     }
   }
   return null
 }
 
-function deriveTokenTotals(entries: readonly TranscriptEntry[], toolEstimated: number): ChatDiagnosticTokenTotals {
+function deriveTokenTotals(entries: readonly any[], toolEstimated: number): ChatDiagnosticTokenTotals {
   const latestUsage = getLatestUsage(entries)
   if (latestUsage) {
     return {
@@ -145,52 +147,67 @@ function deriveTokenTotals(entries: readonly TranscriptEntry[], toolEstimated: n
     }
   }
 
+  let estInput = 0
+  let estOutput = 0
+  for (const entry of entries) {
+    if (entry?.kind === "user_prompt" && typeof entry.content === "string") {
+      estInput += Math.ceil(entry.content.length / 4)
+    } else if (entry?.kind === "assistant_text" && typeof entry.text === "string") {
+      estOutput += Math.ceil(entry.text.length / 4)
+    }
+  }
+
+  const estTotal = estInput + estOutput
+
   return {
-    totalKnown: 0,
-    inputKnown: 0,
+    totalKnown: estTotal,
+    inputKnown: estInput,
     cachedInputKnown: 0,
-    outputKnown: 0,
+    outputKnown: estOutput,
     reasoningOutputKnown: 0,
     toolEstimated,
-    source: toolEstimated > 0 ? "estimated_tool_payload" : "none",
+    source: estTotal > 0 ? "estimated" : (toolEstimated > 0 ? "estimated_tool_payload" : "none"),
   }
 }
 
-function labelForTool(entry: Extract<TranscriptEntry, { kind: "tool_call" }>) {
-  const input = entry.tool.input
-  switch (entry.tool.toolKind) {
+function labelForTool(entry: any) {
+  const input = entry.tool?.input || entry.input
+  const toolKind = entry.tool?.toolKind || entry.toolKind
+  const toolName = entry.tool?.toolName || entry.toolName
+
+  switch (toolKind) {
     case "bash":
-      return getStringField(input, "command") ?? entry.tool.toolName
+      return getStringField(input, "command") ?? toolName
     case "grep":
-      return getStringField(input, "pattern") ? `Find ${getStringField(input, "pattern")}` : entry.tool.toolName
+      return getStringField(input, "pattern") ? `Find ${getStringField(input, "pattern")}` : toolName
     case "glob":
-      return getStringField(input, "pattern") ? `Search ${getStringField(input, "pattern")}` : entry.tool.toolName
+      return getStringField(input, "pattern") ? `Search ${getStringField(input, "pattern")}` : toolName
     case "read_file":
-      return getStringField(input, "filePath") ? `Read ${getStringField(input, "filePath")}` : entry.tool.toolName
+      return getStringField(input, "filePath") ? `Read ${getStringField(input, "filePath")}` : toolName
     case "write_file":
-      return getStringField(input, "filePath") ? `Write ${getStringField(input, "filePath")}` : entry.tool.toolName
+      return getStringField(input, "filePath") ? `Write ${getStringField(input, "filePath")}` : toolName
     case "edit_file":
-      return getStringField(input, "filePath") ? `Edit ${getStringField(input, "filePath")}` : entry.tool.toolName
+      return getStringField(input, "filePath") ? `Edit ${getStringField(input, "filePath")}` : toolName
     case "delete_file":
-      return getStringField(input, "filePath") ? `Delete ${getStringField(input, "filePath")}` : entry.tool.toolName
+      return getStringField(input, "filePath") ? `Delete ${getStringField(input, "filePath")}` : toolName
     case "web_search":
-      return getStringField(input, "query") ? `Search web for ${getStringField(input, "query")}` : entry.tool.toolName
+      return getStringField(input, "query") ? `Search web for ${getStringField(input, "query")}` : toolName
     case "mcp_generic":
       return getStringField(input, "server") && getStringField(input, "tool")
         ? `${getStringField(input, "server")}:${getStringField(input, "tool")}`
-        : entry.tool.toolName
+        : toolName
     case "subagent_task":
-      return getStringField(input, "subagentType") ?? entry.tool.toolName
+      return getStringField(input, "subagentType") ?? toolName
     default:
-      return entry.tool.toolName
+      return toolName
   }
 }
 
-function buildStep(entry: TranscriptEntry, index: number): ChatDiagnosticStep {
+function buildStep(entry: any, index: number): ChatDiagnosticStep {
   const base = {
-    id: entry._id,
+    id: entry._id || entry.id || `step-${index}`,
     index,
-    timestamp: createdAtToIso(entry.createdAt),
+    timestamp: createdAtToIso(entry.createdAt || entry.timestamp),
     messageId: entry.messageId,
   }
 
@@ -218,11 +235,11 @@ function buildStep(entry: TranscriptEntry, index: number): ChatDiagnosticStep {
         ...base,
         kind: "tool_call",
         label: labelForTool(entry),
-        toolId: entry.tool.toolId,
-        toolKind: entry.tool.toolKind,
-        tokenEstimate: estimateTokensFromPayload(entry.tool.input),
-        preview: asPreview(entry.tool.input),
-        detail: asDetail(entry.tool.input),
+        toolId: entry.tool?.toolId,
+        toolKind: entry.tool?.toolKind,
+        tokenEstimate: estimateTokensFromPayload(entry.tool?.input),
+        preview: asPreview(entry.tool?.input),
+        detail: asDetail(entry.tool?.input),
       }
     case "tool_result":
       return {
@@ -234,6 +251,18 @@ function buildStep(entry: TranscriptEntry, index: number): ChatDiagnosticStep {
         tokenEstimate: estimateTokensFromPayload(entry.content),
         preview: asPreview(entry.content),
         detail: asDetail(entry.content),
+      }
+    case "tool":
+      return {
+        ...base,
+        kind: "tool_call",
+        label: labelForTool(entry),
+        toolId: entry.toolId,
+        toolKind: entry.toolKind,
+        isError: entry.isError,
+        tokenEstimate: estimateTokensFromPayload(entry.input) + estimateTokensFromPayload(entry.result || entry.rawResult),
+        preview: asPreview(entry.input),
+        detail: asDetail({ input: entry.input, result: entry.result || entry.rawResult }),
       }
     case "context_window_updated":
       return {
@@ -290,7 +319,7 @@ function buildStep(entry: TranscriptEntry, index: number): ChatDiagnosticStep {
         ...base,
         kind: "system",
         label: `${entry.provider} ${entry.model}`,
-        preview: asPreview({ tools: entry.tools.length, agents: entry.agents.length, mcpServers: entry.mcpServers.length }),
+        preview: asPreview({ tools: entry.tools?.length || 0, agents: entry.agents?.length || 0, mcpServers: entry.mcpServers?.length || 0 }),
         detail: asDetail({
           provider: entry.provider,
           model: entry.model,
@@ -299,14 +328,6 @@ function buildStep(entry: TranscriptEntry, index: number): ChatDiagnosticStep {
           slashCommands: entry.slashCommands,
           mcpServers: entry.mcpServers,
         }),
-      }
-    case "account_info":
-      return {
-        ...base,
-        kind: "system",
-        label: "Account info",
-        preview: asPreview(entry.accountInfo),
-        detail: asDetail(entry.accountInfo),
       }
     case "interrupted":
       return {
@@ -382,7 +403,7 @@ function deriveTips(args: {
   return tips
 }
 
-export function deriveChatDiagnostics(entries: readonly TranscriptEntry[]): ChatDiagnostics {
+export function deriveChatDiagnostics(entries: readonly any[]): ChatDiagnostics {
   const visibleEntries = entries.filter((entry) => !entry.hidden)
   const steps = visibleEntries.map((entry, index) => buildStep(entry, index))
   const toolEstimated = steps
@@ -393,7 +414,7 @@ export function deriveChatDiagnostics(entries: readonly TranscriptEntry[]): Chat
     entryCount: visibleEntries.length,
     userPromptCount: visibleEntries.filter((entry) => entry.kind === "user_prompt").length,
     assistantResponseCount: visibleEntries.filter((entry) => entry.kind === "assistant_text").length,
-    toolCallCount: visibleEntries.filter((entry) => entry.kind === "tool_call").length,
+    toolCallCount: visibleEntries.filter((entry) => entry.kind === "tool_call" || entry.kind === "tool").length,
     resultCount: visibleEntries.filter((entry) => entry.kind === "result" || entry.kind === "interrupted").length,
     latestStatus: [...visibleEntries].reverse().find((entry) => entry.kind === "status")?.status ?? null,
     totalDurationMs: visibleEntries.reduce((total, entry) => total + (entry.kind === "result" ? entry.durationMs : 0), 0),
@@ -414,3 +435,70 @@ export function deriveChatDiagnostics(entries: readonly TranscriptEntry[]): Chat
     tips: deriveTips({ steps, tokens, summary }),
   }
 }
+
+export function splitTranscriptIntoTurns(entries: readonly any[]): any[][] {
+  const turns: any[][] = []
+  let currentTurn: any[] = []
+
+  for (const entry of entries) {
+    if (entry?.kind === "user_prompt") {
+      if (currentTurn.length > 0) {
+        turns.push(currentTurn)
+      }
+      currentTurn = [entry]
+    } else {
+      currentTurn.push(entry)
+    }
+  }
+
+  if (currentTurn.length > 0) {
+    turns.push(currentTurn)
+  }
+
+  return turns
+}
+
+export interface SessionTokenTotals {
+  total: number
+  input: number
+  output: number
+  cachedInput: number
+  reasoningOutput: number
+  toolEstimated: number
+  hasEstimates: boolean
+}
+
+export function deriveSessionTokenTotals(messages: ReadonlyArray<any>): SessionTokenTotals {
+  const turns = splitTranscriptIntoTurns(messages)
+  let total = 0
+  let input = 0
+  let output = 0
+  let cachedInput = 0
+  let reasoningOutput = 0
+  let toolEstimated = 0
+  let hasEstimates = false
+
+  for (const turn of turns) {
+    const diagnostics = deriveChatDiagnostics(turn)
+    total += diagnostics.tokens.totalKnown
+    input += diagnostics.tokens.inputKnown
+    output += diagnostics.tokens.outputKnown
+    cachedInput += diagnostics.tokens.cachedInputKnown
+    reasoningOutput += diagnostics.tokens.reasoningOutputKnown
+    toolEstimated += diagnostics.tokens.toolEstimated
+    if (diagnostics.tokens.source === "estimated") {
+      hasEstimates = true
+    }
+  }
+
+  return {
+    total,
+    input,
+    output,
+    cachedInput,
+    reasoningOutput,
+    toolEstimated,
+    hasEstimates,
+  }
+}
+

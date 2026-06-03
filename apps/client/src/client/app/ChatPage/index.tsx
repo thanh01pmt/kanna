@@ -20,6 +20,7 @@ import { Card, CardContent } from "../../components/ui/card"
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "../../components/ui/resizable"
 import { actionMatchesEvent, getResolvedKeybindings } from "../../lib/keybindings"
 import { deriveLatestContextWindowSnapshot } from "../../lib/contextWindow"
+import { deriveSessionTokenTotals } from "../../lib/chatDiagnostics"
 import { cn } from "../../lib/utils"
 import {
   DEFAULT_RIGHT_SIDEBAR_SIZE,
@@ -1223,6 +1224,10 @@ export function ChatPage() {
     return derivedSnapshot
   }, [state.chatSnapshot?.messages])
 
+  const sessionTokenTotals = useMemo(() => {
+    return deriveSessionTokenTotals(state.chatSnapshot?.messages ?? [])
+  }, [state.chatSnapshot?.messages])
+
   const hasTerminals = terminalLayout.terminals.length > 0
   const showTerminalPane = Boolean(projectId && terminalLayout.isVisible && hasTerminals)
   const shouldRenderTerminalLayout = Boolean(projectId && hasTerminals)
@@ -1669,6 +1674,7 @@ export function ChatPage() {
           onToggleBrowserPanel={projectId ? handleToggleBrowserPanel : undefined}
           onToggleFilesPanel={projectId ? handleToggleFilesPanel : undefined}
           onToggleWorkflowPanel={projectId ? handleToggleWorkflowPanel : undefined}
+          onToggleDiagnosticsPanel={projectId ? handleToggleDiagnosticsPanel : undefined}
           onOpenExternal={handleOpenExternal}
           onExportTranscript={state.activeChatId ? () => void state.handleShareChat(state.activeChatId) : undefined}
           canExportTranscript={Boolean(state.activeChatId) && !state.isExportingStandalone}
@@ -1692,9 +1698,12 @@ export function ChatPage() {
             sources={activeSources}
             diffs={state.chatDiffSnapshot}
             contextWindowSnapshot={contextWindowSnapshot}
+            sessionTokenTotals={sessionTokenTotals}
             progressPopoverOpen={progressPopoverOpen}
+            diagnosticsPanelOpen={activeRightPanel === "diagnostics"}
             onToggleProgressPopover={handleToggleProgressPopover}
             onToggleGitPanel={handleToggleRightSidebar}
+            onToggleDiagnosticsPanel={handleToggleDiagnosticsPanel}
           />
         ) : null}
         {progressPopoverOpen && (
@@ -1706,6 +1715,7 @@ export function ChatPage() {
             branchName={state.chatDiffSnapshot?.branchName || "main"}
             onClose={() => setProgressPopoverOpen(false)}
             onToggleGitPanel={handleToggleRightSidebar}
+            messages={state.messages}
           />
         )}
         <ChatTranscriptViewport
@@ -1861,7 +1871,7 @@ export function ChatPage() {
   const rightPanelBodyContent = activeRightPanel === "browser" && projectId
     ? <BrowserPanel projectId={projectId} socket={state.socket} onClose={handleCloseRightSidebar} onRunQuickAction={handleRunQuickAction} />
     : activeRightPanel === "diagnostics"
-      ? <ChatDiagnosticsPanel messages={state.chatSnapshot?.messages ?? []} onClose={handleCloseRightSidebar} />
+      ? <ChatDiagnosticsPanel messages={state.messages} onClose={handleCloseRightSidebar} />
     : activeRightPanel === "files" && projectId
       ? (
         <MarkdownSlideViewer

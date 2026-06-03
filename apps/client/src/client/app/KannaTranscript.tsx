@@ -381,6 +381,7 @@ export function useStableResolvedRows(rows: ResolvedTranscriptRow[]) {
 
 interface TranscriptSingleRowProps {
   message: HydratedTranscriptMessage
+  messages: HydratedTranscriptMessage[]
   index: number
   isLoading: boolean
   localPath?: string
@@ -404,6 +405,7 @@ interface TranscriptSingleRowProps {
 
 const TranscriptSingleRow = memo(function TranscriptSingleRow({
   message,
+  messages,
   index,
   isLoading,
   localPath,
@@ -435,8 +437,6 @@ const TranscriptSingleRow = memo(function TranscriptSingleRow({
             key={message.id}
             message={message}
             rawJson={message.debugRaw}
-            localPath={localPath}
-            chatDiffSnapshot={chatDiffSnapshot}
           />
         ) : null
         break
@@ -487,7 +487,7 @@ const TranscriptSingleRow = memo(function TranscriptSingleRow({
         rendered = <ToolCallMessage key={message.id} message={message} isLoading={isLoading} localPath={localPath} />
         break
       case "result":
-        rendered = hideResult ? null : <ResultMessage key={message.id} message={message} chatDiffSnapshot={chatDiffSnapshot} />
+        rendered = hideResult ? null : <ResultMessage key={message.id} message={message} messages={messages} chatDiffSnapshot={chatDiffSnapshot} />
         break
       case "context_window_updated":
         rendered = null
@@ -522,7 +522,8 @@ const TranscriptSingleRow = memo(function TranscriptSingleRow({
     </div>
   )
 }, (prev, next) => (
-  prev.index === next.index
+  prev.messages === next.messages
+  && prev.index === next.index
   && prev.isLoading === next.isLoading
   && prev.localPath === next.localPath
   && prev.isFirstSystem === next.isFirstSystem
@@ -657,6 +658,7 @@ interface KannaTranscriptProps {
 
 interface KannaTranscriptRowProps {
   row: ResolvedTranscriptRow
+  messages: HydratedTranscriptMessage[]
   toolGroupExpanded?: boolean
   chatDiffSnapshot?: ChatDiffSnapshot | null
   onToolGroupExpandedChange: (groupId: string, next: boolean) => void
@@ -671,6 +673,7 @@ interface KannaTranscriptRowProps {
 
 export const KannaTranscriptRow = memo(function KannaTranscriptRow({
   row,
+  messages,
   toolGroupExpanded,
   chatDiffSnapshot,
   onToolGroupExpandedChange,
@@ -695,6 +698,7 @@ export const KannaTranscriptRow = memo(function KannaTranscriptRow({
   return (
     <TranscriptSingleRow
       message={row.message}
+      messages={messages}
       index={row.index}
       isLoading={row.isLoading}
       localPath={row.localPath}
@@ -713,6 +717,7 @@ export const KannaTranscriptRow = memo(function KannaTranscriptRow({
     />
   )
 }, (prev, next) => {
+  if (prev.messages !== next.messages) return false
   if (prev.toolGroupExpanded !== next.toolGroupExpanded) return false
   if (prev.onToolGroupExpandedChange !== next.onToolGroupExpandedChange) return false
   if (prev.onAskUserQuestionSubmit !== next.onAskUserQuestionSubmit) return false
@@ -785,6 +790,7 @@ function KannaTranscriptImpl({
         >
           <KannaTranscriptRow
             row={row}
+            messages={messages}
             toolGroupExpanded={row.kind === "tool-group" ? (toolGroupExpanded[row.id] ?? false) : undefined}
             chatDiffSnapshot={chatDiffSnapshot}
             onToolGroupExpandedChange={handleToolGroupExpandedChange}

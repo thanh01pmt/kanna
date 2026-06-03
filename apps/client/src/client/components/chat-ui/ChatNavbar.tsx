@@ -1,5 +1,5 @@
 import { type MouseEvent as ReactMouseEvent } from "react"
-import { Check, Flower, ListTodo, Loader2, Menu, MoreHorizontal, PanelLeft, PanelRight, SquarePen, Terminal, UserRoundPlus } from "lucide-react"
+import { Check, Flower, ListTodo, Loader2, Menu, MoreHorizontal, PanelLeft, PanelRight, SquarePen, Terminal, UserRoundPlus, Activity } from "lucide-react"
 import type { EditorOpenSettings, EditorPreset, OpenExternalAction } from "@kanna/shared/protocol"
 import { Button } from "../ui/button"
 import { CardHeader } from "../ui/card"
@@ -103,6 +103,7 @@ interface Props {
   onToggleBrowserPanel?: () => void
   onToggleFilesPanel?: () => void
   onToggleWorkflowPanel?: () => void
+  onToggleDiagnosticsPanel?: () => void
   onOpenExternal?: (action: OpenExternalAction, editor?: EditorOpenSettings) => void
   onExportTranscript?: () => void
   canExportTranscript?: boolean
@@ -132,6 +133,7 @@ export function ChatNavbar({
   onToggleBrowserPanel,
   onToggleFilesPanel,
   onToggleWorkflowPanel,
+  onToggleDiagnosticsPanel,
   onOpenExternal,
   onExportTranscript,
   canExportTranscript = false,
@@ -155,6 +157,7 @@ export function ChatNavbar({
     rightPanel === "git" ? onToggleGitPanel :
     rightPanel === "files" ? onToggleFilesPanel :
     rightPanel === "workflow" ? onToggleWorkflowPanel :
+    rightPanel === "diagnostics" ? onToggleDiagnosticsPanel :
     undefined
 
   return (
@@ -283,6 +286,22 @@ export function ChatNavbar({
                     )}
                   >
                     <ListTodo strokeWidth={2} className="h-4 w-4" />
+                  </Button>
+                ) : null}
+                {onToggleDiagnosticsPanel ? (
+                  <Button
+                    id="chat-diagnostics-toggle"
+                    variant="ghost"
+                    size="none"
+                    onClick={onToggleDiagnosticsPanel}
+                    title="Diagnostics panel"
+                    aria-label="Diagnostics panel"
+                    className={cn(
+                      "border flex flex-row items-center justify-center w-[38px] h-9 border-border/0 hover:!border-border/0 hover:!bg-transparent text-muted-foreground hover:text-foreground",
+                      rightPanel === "diagnostics" && "text-foreground bg-accent/30"
+                    )}
+                  >
+                    <Activity strokeWidth={2} className="h-4 w-4" />
                   </Button>
                 ) : null}
                 {onToggleGitPanel ? (

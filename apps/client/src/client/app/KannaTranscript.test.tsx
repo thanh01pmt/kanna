@@ -210,7 +210,7 @@ Please check the latest error first.`,
     expect(html).not.toContain("Completed")
   })
 
-  test("does not render wrappers for short successful result rows", () => {
+  test("renders wrappers for short successful result rows", () => {
     const html = renderTranscript([
       {
         id: "result-short-1",
@@ -223,7 +223,7 @@ Please check the latest error first.`,
       },
     ])
 
-    expect(countRowWrappers(html)).toBe(0)
+    expect(countRowWrappers(html)).toBe(1)
   })
 
   test("renders wrappers for long successful result rows", () => {
@@ -372,7 +372,7 @@ Please check the latest error first.`,
     expect(rows[1]?.kind).toBe("single")
   })
 
-  test("groups collapsible tools across hidden short result rows", () => {
+  test("does not group collapsible tools across visible short result rows", () => {
     const rows = buildResolvedTranscriptRows([
       createToolMessage("tool-1"),
       {
@@ -390,10 +390,10 @@ Please check the latest error first.`,
       latestToolIds: { AskUserQuestion: null, ExitPlanMode: null, TodoWrite: null },
     })
 
-    expect(rows).toHaveLength(1)
-    expect(rows[0]?.kind).toBe("tool-group")
-    if (rows[0]?.kind !== "tool-group") throw new Error("unexpected row kind")
-    expect(rows[0].messages.map((message) => message.id)).toEqual(["tool-1", "tool-2"])
+    expect(rows).toHaveLength(3)
+    expect(rows[0]?.kind).toBe("single")
+    expect(rows[1]?.kind).toBe("single")
+    expect(rows[2]?.kind).toBe("single")
   })
 
   test("does not group collapsible tools across visible transcript rows", () => {
