@@ -1869,6 +1869,17 @@ function workflowPayloadFromTranscriptEntry(args: {
           textPreview: args.entry.text.slice(0, 400),
         },
       }
+    case "assistant_thinking":
+      return {
+        eventType: "agent_message",
+        actorType: "agent",
+        actorId: args.provider,
+        nodeName: "Agent thinking",
+        payload: {
+          ...basePayload,
+          textPreview: args.entry.thinking.slice(0, 400),
+        },
+      }
     case "tool_call":
       return {
         eventType: "agent_tool_started",
@@ -3218,6 +3229,17 @@ export class SupabaseWorkflowRuntimeStore implements WorkflowRuntimeStore {
           payload: {
             ...basePayload,
             textPreview: args.entry.text.slice(0, 400),
+          },
+        }
+      case "assistant_thinking":
+        return {
+          eventType: "agent_message",
+          actorType: "agent",
+          actorId: args.provider,
+          nodeName: "Agent thinking",
+          payload: {
+            ...basePayload,
+            textPreview: args.entry.thinking.slice(0, 400),
           },
         }
       case "tool_call": {

@@ -453,6 +453,14 @@ export class PiSdkAppServerManager {
             text: assistantMessageEvent.delta,
           }),
         })
+      } else if (assistantMessageEvent.type === "thinking_delta" && typeof assistantMessageEvent.delta === "string") {
+        pendingTurn.queue.push({
+          type: "transcript",
+          entry: timestamped({
+            kind: "assistant_thinking",
+            thinking: assistantMessageEvent.delta,
+          }),
+        })
       }
       return
     }
