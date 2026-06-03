@@ -197,10 +197,54 @@ export class PiSdkAppServerManager {
 
     const modelRegistry = this.getModelRegistry()
     const resolvedModel = this.resolveModel(args.model, modelRegistry)
+
+    const additionalSkillPaths: string[] = []
+    const os = await import("node:os")
+    const { existsSync } = await import("node:fs")
+    const { readdir } = await import("node:fs/promises")
+
+    const localDir1 = join(args.cwd, ".pi", "agent", "skills")
+    const localDir2 = join(args.cwd, ".pi", "skills")
+    for (const localDir of [localDir1, localDir2]) {
+      if (existsSync(localDir)) {
+        try {
+          const entries = await readdir(localDir, { withFileTypes: true })
+          for (const entry of entries) {
+            if (entry.isDirectory() && !entry.name.endsWith(".disabled")) {
+              additionalSkillPaths.push(join(localDir, entry.name))
+            }
+          }
+        } catch (err) {
+          // ignore
+        }
+      }
+    }
+
+    const { DefaultResourceLoader, SettingsManager } = await import("@earendil-works/pi-coding-agent")
+    const settingsManager = SettingsManager.create(args.cwd, this.agentDir)
+    const resourceLoader = new DefaultResourceLoader({
+      cwd: args.cwd,
+      agentDir: this.agentDir,
+      settingsManager,
+      additionalSkillPaths,
+      skillsOverride: (base) => {
+        return {
+          skills: base.skills.filter((s) => {
+            const parts = s.filePath.split(/[/\\]/)
+            return !parts.some((part) => part.endsWith(".disabled"))
+          }),
+          diagnostics: base.diagnostics,
+        }
+      }
+    })
+    await resourceLoader.reload()
+
     const result = await this.createSession({
       cwd: args.cwd,
       agentDir: this.agentDir,
       modelRegistry,
+      resourceLoader,
+      settingsManager,
       ...(resolvedModel ? { model: resolvedModel } : {}),
       sessionManager: args.sessionToken
         ? SessionManager.open(args.sessionToken)

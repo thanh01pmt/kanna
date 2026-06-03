@@ -1,4 +1,4 @@
-import { readFile, readdir, writeFile, mkdir } from "node:fs/promises"
+import { readFile, readdir, writeFile, mkdir, rename } from "node:fs/promises"
 import { existsSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
@@ -2029,6 +2029,108 @@ export function createWsRouter({
             send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: skills })
           } catch (err) {
             send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: [] })
+          }
+          return
+        }
+        case "settings.listSkills": {
+          try {
+            const agent = command.agent
+            const project = command.projectId ? store.getProject(command.projectId) : null
+            const results: Array<{
+              name: string
+              folderName: string
+              isLocal: boolean
+              enabled: boolean
+              path: string
+            }> = []
+
+            async function readSkillsFromDir(dirPath: string, isLocal: boolean) {
+              if (!existsSync(dirPath)) return []
+              try {
+                const entries = await readdir(dirPath, { withFileTypes: true })
+                return entries
+                  .filter((entry) => entry.isDirectory())
+                  .map((entry) => {
+                    const folderName = entry.name
+                    const enabled = !folderName.endsWith(".disabled")
+                    const name = enabled ? folderName : folderName.slice(0, -9)
+                    return {
+                      name,
+                      folderName,
+                      isLocal,
+                      enabled,
+                      path: path.join(dirPath, folderName)
+                    }
+                  })
+              } catch (err) {
+                return []
+              }
+            }
+
+            if (agent === "pi") {
+              const globalDir = path.join(os.homedir(), ".pi", "agent", "skills")
+              results.push(...(await readSkillsFromDir(globalDir, false)))
+              if (project) {
+                const localDir1 = path.join(project.localPath, ".pi", "agent", "skills")
+                const localDir2 = path.join(project.localPath, ".pi", "skills")
+                results.push(...(await readSkillsFromDir(localDir1, true)))
+                results.push(...(await readSkillsFromDir(localDir2, true)))
+              }
+            } else {
+              const globalDir = path.join(os.homedir(), ".agents", "skills")
+              results.push(...(await readSkillsFromDir(globalDir, false)))
+              if (project) {
+                const localDir = path.join(project.localPath, ".agents", "skills")
+                results.push(...(await readSkillsFromDir(localDir, true)))
+              }
+            }
+
+            send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: results })
+          } catch (err) {
+            send(ws, { v: PROTOCOL_VERSION, type: "error", id, message: err instanceof Error ? err.message : String(err) })
+          }
+          return
+        }
+        case "settings.saveSkills": {
+          try {
+            const parentDirs = new Set<string>()
+            for (const skill of command.skills) {
+              const curPath = skill.path
+              const targetEnabled = skill.enabled
+              const isCurrentlyDisabled = curPath.endsWith(".disabled")
+
+              if (targetEnabled && isCurrentlyDisabled) {
+                const parentDir = path.dirname(curPath)
+                parentDirs.add(parentDir)
+                const folderName = path.basename(curPath)
+                const newFolderName = folderName.slice(0, -9)
+                const newPath = path.join(parentDir, newFolderName)
+                if (existsSync(curPath)) {
+                  await rename(curPath, newPath)
+                }
+              } else if (!targetEnabled && !isCurrentlyDisabled) {
+                const parentDir = path.dirname(curPath)
+                parentDirs.add(parentDir)
+                const newPath = curPath + ".disabled"
+                if (existsSync(curPath)) {
+                  await rename(curPath, newPath)
+                }
+              }
+            }
+
+            for (const dir of parentDirs) {
+              if (existsSync(dir)) {
+                try {
+                  await writeFile(path.join(dir, ".ignore"), "*.disabled\n", "utf8")
+                } catch (err) {
+                  // ignore
+                }
+              }
+            }
+
+            send(ws, { v: PROTOCOL_VERSION, type: "ack", id, result: { success: true } })
+          } catch (err) {
+            send(ws, { v: PROTOCOL_VERSION, type: "error", id, message: err instanceof Error ? err.message : String(err) })
           }
           return
         }

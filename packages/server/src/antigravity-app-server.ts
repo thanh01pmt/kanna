@@ -24,9 +24,51 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { createInterface } from "node:readline"
 import type { Readable, Writable } from "node:stream"
+import { existsSync } from "node:fs"
+import { readdir } from "node:fs/promises"
+import os from "node:os"
 import type { AntigravityReasoningEffort, NormalizedToolCall, TranscriptEntry } from "@kanna/shared/types"
 import { normalizeToolCall } from "@kanna/shared/tools"
 import type { HarnessEvent, HarnessToolRequest, HarnessTurn } from "./harness-types"
+
+async function resolveEnabledSkillPaths(cwd: string): Promise<string[]> {
+  const enabledPaths: string[] = []
+
+  // 1. Global skills
+  const globalDir = path.join(os.homedir(), ".pi", "agent", "skills")
+  if (existsSync(globalDir)) {
+    try {
+      const entries = await readdir(globalDir, { withFileTypes: true })
+      for (const entry of entries) {
+        if (entry.isDirectory() && !entry.name.endsWith(".disabled")) {
+          enabledPaths.push(path.join(globalDir, entry.name))
+        }
+      }
+    } catch (err) {
+      // ignore
+    }
+  }
+
+  // 2. Project local skills
+  const localDir1 = path.join(cwd, ".pi", "agent", "skills")
+  const localDir2 = path.join(cwd, ".pi", "skills")
+  for (const localDir of [localDir1, localDir2]) {
+    if (existsSync(localDir)) {
+      try {
+        const entries = await readdir(localDir, { withFileTypes: true })
+        for (const entry of entries) {
+          if (entry.isDirectory() && !entry.name.endsWith(".disabled")) {
+            enabledPaths.push(path.join(localDir, entry.name))
+          }
+        }
+      } catch (err) {
+        // ignore
+      }
+    }
+  }
+
+  return enabledPaths
+}
 
 // ─── Child-process abstraction (injectable for tests) ───────────────────────
 
@@ -302,6 +344,8 @@ export class AntigravityAppServerManager {
     session.rawText = ""
     session.rawTextEmitted = false
 
+    const enabledSkillPaths = await resolveEnabledSkillPaths(session.cwd)
+
     const cliArgs = isSdkTransport()
       ? [
           "--model", args.model,
@@ -319,6 +363,9 @@ export class AntigravityAppServerManager {
     }
     if (isSdkTransport() && args.effort) {
       cliArgs.push("--effort", args.effort)
+    }
+    if (isSdkTransport() && enabledSkillPaths.length > 0) {
+      cliArgs.push("--skills-paths", ...enabledSkillPaths)
     }
     if (session.sessionToken && !isSdkTransport()) {
       cliArgs.push("--conversation", session.sessionToken)

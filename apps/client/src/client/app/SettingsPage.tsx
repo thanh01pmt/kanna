@@ -586,7 +586,7 @@ export function SkillsSection({
   state,
   defaultProvider,
 }: {
-  state: Pick<KannaState, "connectionStatus" | "socket">
+  state: Pick<KannaState, "connectionStatus" | "socket" | "activeProjectId">
   defaultProvider?: AgentProvider
 }) {
   const socket = state.socket
@@ -606,10 +606,20 @@ export function SkillsSection({
   const [uninstallingSkillId, setUninstallingSkillId] = useState<string | null>(null)
   const [installMessages, setInstallMessages] = useState<Record<string, string>>({})
 
-  // Pi-specific states
-  const [piSkills, setPiSkills] = useState<string[]>([])
-  const [piLoading, setPiLoading] = useState(false)
-  const [piError, setPiError] = useState<string | null>(null)
+  // Discovered skills states (for Pi, Antigravity, Codex)
+  interface DiscoveredSkill {
+    name: string
+    folderName: string
+    isLocal: boolean
+    enabled: boolean
+    path: string
+  }
+  const [discoveredSkills, setDiscoveredSkills] = useState<DiscoveredSkill[]>([])
+  const [originalDiscoveredSkills, setOriginalDiscoveredSkills] = useState<DiscoveredSkill[]>([])
+  const [discoveredLoading, setDiscoveredLoading] = useState(false)
+  const [discoveredError, setDiscoveredError] = useState<string | null>(null)
+  const [discoveredSaving, setDiscoveredSaving] = useState(false)
+  const [discoveredSearchQuery, setDiscoveredSearchQuery] = useState("")
 
   async function loadInstalledSkills() {
     if (connectionStatus !== "connected") {
@@ -635,46 +645,68 @@ export function SkillsSection({
     }
   }
 
-  async function loadPiSkills() {
+  async function loadDiscoveredSkills() {
     if (connectionStatus !== "connected") {
-      setPiSkills([])
-      setPiError(null)
-      setPiLoading(false)
+      setDiscoveredSkills([])
+      setOriginalDiscoveredSkills([])
       return
     }
-
     try {
-      setPiLoading(true)
-      setPiError(null)
-      const result = await socket.command<string[]>({ type: "pi.listSkills" })
-      setPiSkills(result)
-    } catch (error) {
-      setPiSkills([])
-      setPiError(error instanceof Error ? error.message : "Unable to scan Pi skills.")
-    } finally {
-      setPiLoading(false)
-    }
-  }
-
-  const openPiSkillsDir = async () => {
-    try {
-      await socket.command({
-        type: "system.openExternal",
-        localPath: "~/.pi/agent/skills",
-        action: "open_finder",
+      setDiscoveredLoading(true)
+      setDiscoveredError(null)
+      const result = await socket.command<DiscoveredSkill[]>({
+        type: "settings.listSkills",
+        agent: defaultProvider,
+        projectId: state.activeProjectId || undefined,
       })
+      setDiscoveredSkills(result)
+      setOriginalDiscoveredSkills(result)
     } catch (err) {
-      console.error(err)
+      setDiscoveredError(err instanceof Error ? err.message : String(err))
+      setDiscoveredSkills([])
+      setOriginalDiscoveredSkills([])
+    } finally {
+      setDiscoveredLoading(false)
     }
   }
 
   useEffect(() => {
-    if (defaultProvider === "pi") {
-      void loadPiSkills()
-    } else if (defaultProvider === "claude" || defaultProvider === "codex" || !defaultProvider) {
+    if (defaultProvider === "pi" || defaultProvider === "antigravity" || defaultProvider === "codex") {
+      void loadDiscoveredSkills()
+    } else if (defaultProvider === "claude" || !defaultProvider) {
       void loadInstalledSkills()
     }
-  }, [connectionStatus, socket, defaultProvider])
+  }, [connectionStatus, socket, defaultProvider, state.activeProjectId])
+
+  const handleToggleDiscoveredSkill = (skillPath: string) => {
+    setDiscoveredSkills((current) =>
+      current.map((s) => (s.path === skillPath ? { ...s, enabled: !s.enabled } : s))
+    )
+  }
+
+  const hasDiscoveredChanges = JSON.stringify(discoveredSkills) !== JSON.stringify(originalDiscoveredSkills)
+
+  const handleResetDiscovered = () => {
+    setDiscoveredSkills(originalDiscoveredSkills)
+  }
+
+  async function handleSaveDiscovered() {
+    if (connectionStatus !== "connected") return
+    try {
+      setDiscoveredSaving(true)
+      setDiscoveredError(null)
+      await socket.command({
+        type: "settings.saveSkills",
+        agent: defaultProvider,
+        skills: discoveredSkills,
+      })
+      setOriginalDiscoveredSkills(discoveredSkills)
+    } catch (err) {
+      setDiscoveredError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setDiscoveredSaving(false)
+    }
+  }
 
   async function installSkill(skill: SkillSearchResult) {
     if (connectionStatus !== "connected") {
@@ -794,38 +826,57 @@ export function SkillsSection({
       }
   }, [connectionStatus, query, socket, defaultProvider])
 
-  if (defaultProvider === "pi") {
-    const skillCount = piSkills.length
-    const tokenBloat = skillCount * 80
-    const tokenSeverity = tokenBloat > 3000 ? "high" : tokenBloat > 1200 ? "medium" : "low"
-    const severityText = tokenSeverity === "high" ? "High Context Bloat" : tokenSeverity === "medium" ? "Moderate Context Bloat" : "Optimal Context Usage"
-    const severityColor = tokenSeverity === "high" ? "text-red-500 bg-red-500/10 border-red-500/20" : tokenSeverity === "medium" ? "text-amber-500 bg-amber-500/10 border-amber-500/20" : "text-emerald-500 bg-emerald-500/10 border-emerald-500/20"
+  if (defaultProvider === "pi" || defaultProvider === "antigravity" || defaultProvider === "codex") {
+    const discTotal = discoveredSkills.length
+    const discEnabled = discoveredSkills.filter(s => s.enabled).length
+    const discDisabled = discoveredSkills.filter(s => !s.enabled).length
+    const discTokenBloat = discEnabled * 80
+    const discTokenSeverity = discTokenBloat > 3000 ? "high" : discTokenBloat > 1200 ? "medium" : "low"
+    const discSeverityText = discTokenSeverity === "high" ? "High Context Bloat" : discTokenSeverity === "medium" ? "Moderate Context Bloat" : "Optimal Context Usage"
+    const discSeverityColor = discTokenSeverity === "high" ? "text-red-500 bg-red-500/10 border-red-500/20" : discTokenSeverity === "medium" ? "text-amber-500 bg-amber-500/10 border-amber-500/20" : "text-emerald-500 bg-emerald-500/10 border-emerald-500/20"
+
+    const filteredDiscovered = discoveredSkills.filter((s) =>
+      s.name.toLowerCase().includes(discoveredSearchQuery.toLowerCase())
+    )
 
     return (
       <div className="flex flex-col gap-6">
-        <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 px-6 py-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        {discoveredError && <div className="text-xs text-destructive">{discoveredError}</div>}
+
+        {/* Change Banner */}
+        {hasDiscoveredChanges && (
+          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-6 py-4 flex items-center justify-between gap-4 animate-in fade-in-50 duration-150">
             <div className="flex gap-3">
-              <AlertCircle className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
+              <AlertCircle className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
               <div>
-                <div className="text-sm font-semibold text-foreground">Pi Agent Integration</div>
-                <div className="mt-1 text-sm text-muted-foreground leading-relaxed">
-                  Pi Agent tự quản lý các custom skills của nó. Hệ thống global skills của Kanna không được áp dụng.
+                <div className="text-sm font-semibold text-foreground font-sans">Unsaved Changes</div>
+                <div className="mt-1 text-sm text-muted-foreground leading-relaxed font-sans">
+                  Bạn có thay đổi chưa lưu trên cấu hình Skills. Hãy lưu hoặc reset lại.
                 </div>
               </div>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={openPiSkillsDir}
-              className="shrink-0 gap-1.5"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-              Open Skills Directory
-            </Button>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleResetDiscovered}
+                disabled={discoveredSaving}
+              >
+                Reset
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => void handleSaveDiscovered()}
+                disabled={discoveredSaving}
+              >
+                {discoveredSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+                Save Changes
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Telemetry/Stats Panel */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -835,8 +886,8 @@ export function SkillsSection({
               <BookText className="h-4 w-4 text-muted-foreground" />
             </div>
             <div className="mt-2 flex items-baseline gap-2">
-              <span className="text-2xl font-bold tracking-tight text-foreground">{skillCount}</span>
-              <span className="text-xs text-muted-foreground font-sans">local skills</span>
+              <span className="text-2xl font-bold tracking-tight text-foreground">{discTotal}</span>
+              <span className="text-xs text-muted-foreground font-sans">skills</span>
             </div>
           </div>
 
@@ -851,11 +902,11 @@ export function SkillsSection({
             <div className="mt-2 flex flex-col gap-1">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground font-sans">Enabled</span>
-                <span className="font-semibold text-emerald-500">{skillCount}</span>
+                <span className="font-semibold text-emerald-500">{discEnabled}</span>
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground font-sans">Disabled</span>
-                <span className="font-semibold text-muted-foreground">0</span>
+                <span className="font-semibold text-muted-foreground">{discDisabled}</span>
               </div>
             </div>
           </div>
@@ -867,42 +918,81 @@ export function SkillsSection({
             </div>
             <div className="mt-2">
               <div className="flex items-baseline gap-1">
-                <span className="text-2xl font-bold tracking-tight text-foreground">~{tokenBloat}</span>
+                <span className="text-2xl font-bold tracking-tight text-foreground">~{discTokenBloat}</span>
                 <span className="text-[10px] text-muted-foreground font-sans">tokens</span>
               </div>
-              <span className={cn("inline-flex items-center mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium border font-sans", severityColor)}>
-                {severityText}
+              <span className={cn("inline-flex items-center mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium border font-sans", discSeverityColor)}>
+                {discSeverityText}
               </span>
             </div>
           </div>
         </div>
 
+        {/* Filter Input */}
         <section className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <div className="text-sm font-medium text-foreground">Discovered Pi Skills</div>
-            {piLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-sm font-medium text-foreground font-sans">Discovered Skills</div>
+            {discoveredLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
           </div>
-          {piError && <div className="text-xs text-destructive">{piError}</div>}
-          {piSkills.length > 0 ? (
+          
+          <div className="flex h-10 items-center gap-2 rounded-lg border border-border bg-card/30 px-3">
+            <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <input
+              type="text"
+              role="searchbox"
+              value={discoveredSearchQuery}
+              onChange={(event) => setDiscoveredSearchQuery(event.target.value)}
+              placeholder="Search discovered skills..."
+              className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+            />
+            {discoveredSearchQuery ? (
+              <button
+                type="button"
+                aria-label="Clear skills search"
+                onClick={() => setDiscoveredSearchQuery("")}
+                className="touch-manipulation inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+          </div>
+
+          {filteredDiscovered.length > 0 ? (
             <div className="grid gap-3 md:grid-cols-2">
-              {piSkills.map((skillName) => (
-                <div key={skillName} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card/30 p-3">
+              {filteredDiscovered.map((skill) => (
+                <div key={skill.path} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card/30 p-3">
                   <div className="flex items-center gap-3 min-w-0">
                     <BookText className="h-4 w-4 text-blue-500 shrink-0" />
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-foreground">{skillName}</div>
-                      <div className="truncate text-xs text-muted-foreground">Local Pi Skill</div>
+                      <div className="truncate text-sm font-medium text-foreground" title={skill.name}>{skill.name}</div>
+                      <div className="truncate text-xs text-muted-foreground">
+                        {skill.isLocal ? "Project Skill" : "Global Skill"}
+                      </div>
                     </div>
                   </div>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-medium border border-emerald-500/20 bg-emerald-500/10 text-emerald-500 shrink-0">
-                    Enabled
-                  </span>
+                  
+                  <button
+                    type="button"
+                    onClick={() => handleToggleDiscoveredSkill(skill.path)}
+                    className="text-muted-foreground hover:text-foreground transition-colors shrink-0 animate-in fade-in duration-100"
+                    title={skill.enabled ? "Disable skill" : "Enable skill"}
+                  >
+                    {skill.enabled ? (
+                      <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                        <ToggleRight className="h-6 w-6" /> Enabled
+                      </span>
+                    ) : (
+                      <span className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                        <ToggleLeft className="h-6 w-6" /> Disabled
+                      </span>
+                    )}
+                  </button>
                 </div>
               ))}
             </div>
-          ) : !piLoading ? (
-            <div className="rounded-lg border border-border bg-card/20 p-3 text-sm text-muted-foreground">
-              No custom skills found in Pi Agent skills directory.
+          ) : !discoveredLoading ? (
+            <div className="rounded-lg border border-border bg-card/20 p-3 text-sm text-muted-foreground font-sans">
+              No skills found matching search criteria.
             </div>
           ) : null}
         </section>
@@ -910,7 +1000,7 @@ export function SkillsSection({
     )
   }
 
-  if (defaultProvider && defaultProvider !== "claude" && defaultProvider !== "codex") {
+  if (defaultProvider && defaultProvider !== "claude" && defaultProvider !== "codex" && defaultProvider !== "pi" && defaultProvider !== "antigravity") {
     return (
       <div className="rounded-xl border border-border bg-muted/20 px-6 py-5">
         <div className="flex gap-3">
@@ -918,9 +1008,7 @@ export function SkillsSection({
           <div>
             <div className="text-sm font-semibold text-foreground">Skills Not Supported</div>
             <div className="mt-1 text-sm text-muted-foreground leading-relaxed">
-              {defaultProvider === "antigravity"
-                ? "Antigravity Agent không hỗ trợ cấu hình Custom Skills trên Kanna. Nó sử dụng bộ skill tích hợp sẵn của nó."
-                : `${defaultProvider} Agent không hỗ trợ cấu hình Custom Skills trên Kanna.`}
+              {`${defaultProvider} Agent không hỗ trợ cấu hình Custom Skills trên Kanna.`}
             </div>
           </div>
         </div>

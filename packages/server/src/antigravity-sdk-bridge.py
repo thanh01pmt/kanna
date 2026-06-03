@@ -21,7 +21,7 @@ def emit(record: dict[str, Any]) -> None:
     sys.stdout.flush()
 
 
-async def run(prompt: str, model: str | None, effort: str | None) -> None:
+async def run(prompt: str, model: str | None, effort: str | None, skills_paths: list[str] | None) -> None:
     started = time.monotonic()
 
     try:
@@ -46,6 +46,8 @@ async def run(prompt: str, model: str | None, effort: str | None) -> None:
         config_kwargs["model"] = model
     if effort:
         config_kwargs["reasoning_effort"] = effort
+    if skills_paths:
+        config_kwargs["skills_paths"] = skills_paths
 
     try:
         config = LocalAgentConfig(**config_kwargs)
@@ -90,9 +92,10 @@ def main() -> None:
     parser.add_argument("--prompt", required=True)
     parser.add_argument("--model")
     parser.add_argument("--effort")
+    parser.add_argument("--skills-paths", nargs="*", default=[])
     args = parser.parse_args()
 
-    asyncio.run(run(args.prompt, args.model, args.effort))
+    asyncio.run(run(args.prompt, args.model, args.effort, args.skills_paths))
 
 
 if __name__ == "__main__":
