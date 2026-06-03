@@ -12,7 +12,11 @@ import {
   type ProviderCatalogEntry,
   normalizeClaudeContextWindow,
   resolveClaudeContextWindowTokens,
+  type TodoItem,
+  type ChatDiffSnapshot,
 } from "@kanna/shared/types"
+import type { SessionTokenTotals } from "../../lib/chatDiagnostics"
+import { ChatStatusStrip } from "./ChatStatusStrip"
 import { Button, buttonVariants } from "../ui/button"
 import { Textarea } from "../ui/textarea"
 import { ScrollArea } from "../ui/scroll-area"
@@ -127,6 +131,19 @@ interface Props {
   availableProviders: ProviderCatalogEntry[]
   contextWindowSnapshot?: ContextWindowSnapshot | null
   previousPrompt?: string | null
+
+  // Status Metrics
+  projectName?: string | null
+  branchName?: string
+  todos?: TodoItem[]
+  sources?: string[]
+  diffs?: ChatDiffSnapshot | null
+  sessionTokenTotals?: SessionTokenTotals | null
+  progressPopoverOpen?: boolean
+  diagnosticsPanelOpen?: boolean
+  onToggleProgressPopover?: () => void
+  onToggleGitPanel?: () => void
+  onToggleDiagnosticsPanel?: () => void
 }
 
 export interface ChatInputHandle {
@@ -205,6 +222,18 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
   availableProviders,
   contextWindowSnapshot = null,
   previousPrompt = null,
+
+  projectName,
+  branchName,
+  todos,
+  sources,
+  diffs,
+  sessionTokenTotals,
+  progressPopoverOpen,
+  diagnosticsPanelOpen,
+  onToggleProgressPopover,
+  onToggleGitPanel,
+  onToggleDiagnosticsPanel,
 }, forwardedRef) {
   const {
     getDraft,
@@ -798,9 +827,8 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
         ) : null}
       </div>
 
-      <div className={cn("relative py-3 max-w-[840px] mx-auto", isStandalone && "p-5 pt-3")}>
-        <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex flex-row">
-          <div className="min-w-3" />
+      <div className={cn("relative py-3 max-w-[840px] mx-auto flex justify-center", isStandalone && "p-5 pt-3")}>
+        <div className="overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex flex-row items-center border border-border/80 dark:border-border/40 bg-muted/40 dark:bg-card/45 backdrop-blur-lg rounded-full px-2 py-0.5 shadow-sm max-w-full">
           <ChatPreferenceControls
             availableProviders={availableProviders}
             selectedProvider={selectedProvider}
@@ -850,12 +878,27 @@ const ChatInputInner = forwardRef<ChatInputHandle, Props>(function ChatInput({
             includePlanMode={showPlanMode}
             className="max-w-[840px] mx-auto"
           />
+          {projectId && (
+            <ChatStatusStrip
+              projectName={projectName || ""}
+              branchName={branchName || "main"}
+              todos={todos || []}
+              sources={sources || []}
+              diffs={diffs || null}
+              contextWindowSnapshot={activeContextWindow}
+              sessionTokenTotals={sessionTokenTotals || null}
+              progressPopoverOpen={Boolean(progressPopoverOpen)}
+              diagnosticsPanelOpen={Boolean(diagnosticsPanelOpen)}
+              onToggleProgressPopover={onToggleProgressPopover || (() => {})}
+              onToggleGitPanel={onToggleGitPanel || (() => {})}
+              onToggleDiagnosticsPanel={onToggleDiagnosticsPanel || (() => {})}
+            />
+          )}
           {activeContextWindow ? (
             <div className="flex items-center md:hidden mx-[13px]">
               <ContextWindowMeter usage={activeContextWindow} />
             </div>
           ) : null}
-          <div className="min-w-3" />
         </div>
 
         {activeContextWindow ? (

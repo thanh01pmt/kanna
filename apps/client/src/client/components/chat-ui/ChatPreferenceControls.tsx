@@ -105,7 +105,7 @@ export function InputPopover({
       <button
         disabled
         className={cn(
-          "flex items-center gap-1.5 px-2 py-1 text-sm rounded-md text-muted-foreground [&>svg]:shrink-0 opacity-70 cursor-default [&>span]:whitespace-nowrap",
+          "flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full text-muted-foreground [&>svg]:shrink-0 opacity-70 cursor-default [&>span]:whitespace-nowrap",
           triggerClassName
         )}
       >
@@ -119,8 +119,8 @@ export function InputPopover({
       <PopoverTrigger asChild>
         <button
           className={cn(
-            "flex items-center gap-1.5 px-2 py-1 text-sm rounded-md transition-colors text-muted-foreground [&>svg]:shrink-0 [&>span]:whitespace-nowrap",
-            "hover:bg-muted/50",
+            "flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full transition-colors text-muted-foreground [&>svg]:shrink-0 [&>span]:whitespace-nowrap",
+            "hover:bg-muted/50 hover:text-foreground",
             triggerClassName
           )}
         >

@@ -1,8 +1,9 @@
 import { memo, type RefObject } from "react"
-import type { AgentProvider } from "@kanna/shared/types"
+import type { AgentProvider, ChatDiffSnapshot, TodoItem } from "@kanna/shared/types"
 import { ChatInput, type ChatInputHandle } from "../../components/chat-ui/ChatInput"
 import type { ContextWindowSnapshot } from "../../lib/contextWindow"
 import type { KannaState } from "../useKannaState"
+import type { SessionTokenTotals } from "../../lib/chatDiagnostics"
 
 interface ChatInputDockProps {
   inputRef: RefObject<HTMLDivElement | null>
@@ -20,6 +21,19 @@ interface ChatInputDockProps {
   contextWindowSnapshot: ContextWindowSnapshot | null
   onSubmit: KannaState["handleSend"]
   onCancel: () => void
+
+  // Status Metrics
+  projectName?: string | null
+  branchName?: string
+  todos?: TodoItem[]
+  sources?: string[]
+  diffs?: ChatDiffSnapshot | null
+  sessionTokenTotals?: SessionTokenTotals | null
+  progressPopoverOpen?: boolean
+  diagnosticsPanelOpen?: boolean
+  onToggleProgressPopover?: () => void
+  onToggleGitPanel?: () => void
+  onToggleDiagnosticsPanel?: () => void
 }
 
 export const ChatInputDock = memo(function ChatInputDock({
@@ -38,6 +52,18 @@ export const ChatInputDock = memo(function ChatInputDock({
   contextWindowSnapshot,
   onSubmit,
   onCancel,
+
+  projectName,
+  branchName,
+  todos,
+  sources,
+  diffs,
+  sessionTokenTotals,
+  progressPopoverOpen,
+  diagnosticsPanelOpen,
+  onToggleProgressPopover,
+  onToggleGitPanel,
+  onToggleDiagnosticsPanel,
 }: ChatInputDockProps) {
   return (
     <div className="absolute bottom-0 left-0 right-0 z-20 pointer-events-none">
@@ -57,6 +83,18 @@ export const ChatInputDock = memo(function ChatInputDock({
           availableProviders={availableProviders}
           contextWindowSnapshot={contextWindowSnapshot}
           previousPrompt={previousPrompt}
+
+          projectName={projectName}
+          branchName={branchName}
+          todos={todos}
+          sources={sources}
+          diffs={diffs}
+          sessionTokenTotals={sessionTokenTotals}
+          progressPopoverOpen={progressPopoverOpen}
+          diagnosticsPanelOpen={diagnosticsPanelOpen}
+          onToggleProgressPopover={onToggleProgressPopover}
+          onToggleGitPanel={onToggleGitPanel}
+          onToggleDiagnosticsPanel={onToggleDiagnosticsPanel}
         />
       </div>
     </div>

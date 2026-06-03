@@ -594,13 +594,13 @@ const RightSidebarShell = memo(function RightSidebarShell({
     <aside className="flex h-full min-h-0 flex-col border-l border-border bg-background relative">
       {/* Unified Tab Bar Header */}
       <div className="flex h-[45px] shrink-0 items-center justify-between border-b border-border/70 bg-card/75 px-2 relative select-none z-50">
-        
+
         {/* Scrollable Tabs Container */}
         <div className="flex items-center gap-0.5 h-full min-w-0 overflow-x-auto scrollbar-none flex-1 pr-1.5">
           {filteredTabs.map((tabId) => {
             const isActive = tabId === activeTab
             const { label, icon: TabIcon, meta: tabMeta } = getTabInfo(tabId)
-            
+
             return (
               <div
                 key={tabId}
@@ -615,7 +615,7 @@ const RightSidebarShell = memo(function RightSidebarShell({
                 <TabIcon className="h-3.5 w-3.5 shrink-0" />
                 <span className="truncate max-w-[90px]">{label}</span>
                 {tabMeta}
-                
+
                 {/* Close Button */}
                 <button
                   onClick={(e) => {
@@ -1456,7 +1456,7 @@ export function ChatPage() {
   }, [state.handleOpenExternal])
 
   const handleRemoveTerminal = useCallback((currentProjectId: string, terminalId: string) => {
-    void state.socket.command({ type: "terminal.close", terminalId }).catch(() => {})
+    void state.socket.command({ type: "terminal.close", terminalId }).catch(() => { })
     removeTerminal(currentProjectId, terminalId)
   }, [removeTerminal, state.socket])
 
@@ -1690,7 +1690,7 @@ export function ChatPage() {
           progressPopoverOpen={progressPopoverOpen}
           onToggleProgressPopover={projectId ? handleToggleProgressPopover : undefined}
         />
-        {projectId ? (
+        {/* {projectId ? (
           <ChatStatusStrip
             projectName={activeProjectName}
             branchName={state.chatDiffSnapshot?.branchName || "main"}
@@ -1705,7 +1705,7 @@ export function ChatPage() {
             onToggleGitPanel={handleToggleRightSidebar}
             onToggleDiagnosticsPanel={handleToggleDiagnosticsPanel}
           />
-        ) : null}
+        ) : null} */}
         {progressPopoverOpen && (
           <AgentProgressPopover
             todos={activeTodos}
@@ -1770,6 +1770,18 @@ export function ChatPage() {
         contextWindowSnapshot={contextWindowSnapshot}
         onSubmit={handleChatSubmit}
         onCancel={handleCancel}
+
+        projectName={activeProjectName}
+        branchName={state.chatDiffSnapshot?.branchName || "main"}
+        todos={activeTodos}
+        sources={activeSources}
+        diffs={state.chatDiffSnapshot}
+        sessionTokenTotals={sessionTokenTotals}
+        progressPopoverOpen={progressPopoverOpen}
+        diagnosticsPanelOpen={activeRightPanel === "diagnostics"}
+        onToggleProgressPopover={handleToggleProgressPopover}
+        onToggleGitPanel={handleToggleRightSidebar}
+        onToggleDiagnosticsPanel={handleToggleDiagnosticsPanel}
       />
     </Card>
   )
@@ -1872,58 +1884,58 @@ export function ChatPage() {
     ? <BrowserPanel projectId={projectId} socket={state.socket} onClose={handleCloseRightSidebar} onRunQuickAction={handleRunQuickAction} />
     : activeRightPanel === "diagnostics"
       ? <ChatDiagnosticsPanel messages={state.messages} onClose={handleCloseRightSidebar} />
-    : activeRightPanel === "files" && projectId
-      ? (
-        <MarkdownSlideViewer
-          projectId={projectId}
-          socket={state.socket}
-          onClose={handleCloseRightSidebar}
-          activeTab={rightSidebarVisibility.activeTab || "tool:files"}
-          openTabs={rightSidebarVisibility.openTabs || ["tool:files"]}
-          onSelectTab={(tabId) => {
-            if (tabId === "tool:terminal") {
-              handleToggleEmbeddedTerminal()
-            } else {
-              openSidebarTab(projectId, tabId)
-            }
-          }}
-          onCloseTab={(tabId, e) => {
-            closeSidebarTab(projectId, tabId)
-          }}
-        />
-      )
-      : activeRightPanel === "workflow" && projectId
+      : activeRightPanel === "files" && projectId
         ? (
-          <WorkflowTrackerPanel
-            run={workflowProjection}
-            workflowDefinitions={workflowDefinitions}
-            isStartingWorkflow={isStartingWorkflow}
-            onStartWorkflow={handleStartWorkflow}
-            proposedManifest={proposedManifest || undefined}
-            onPublishWorkflow={handlePublishWorkflow}
-            onRejectWorkflow={handleRejectWorkflow}
-            onReviewDownstream={handleReviewDownstream}
-            onRepairDownstream={handleRepairDownstream}
-            onRerunArtifact={handleRerunArtifact}
-            onViewArtifact={handleViewArtifact}
-            onRegenerateArtifact={handleRegenerateArtifact}
-            onInvalidateArtifact={handleInvalidateArtifact}
-            onAcceptArtifact={handleAcceptArtifact}
-            onRerunNode={handleRerunNode}
-            onRegisterPack={handleRegisterPack}
-            onAddFlowEdge={handleAddFlowEdge}
-            onRemoveFlowEdge={handleRemoveFlowEdge}
-            onApproveFlowEdge={handleApproveFlowEdge}
-            onRejectFlowEdge={handleRejectFlowEdge}
-            onRecoverLock={handleRecoverLock}
-            densityMode={projectUiState?.workflowDensityMode ?? "normal"}
-            onDensityModeChange={(mode) => projectId && setWorkflowDensityMode(projectId, mode)}
+          <MarkdownSlideViewer
+            projectId={projectId}
+            socket={state.socket}
             onClose={handleCloseRightSidebar}
+            activeTab={rightSidebarVisibility.activeTab || "tool:files"}
+            openTabs={rightSidebarVisibility.openTabs || ["tool:files"]}
+            onSelectTab={(tabId) => {
+              if (tabId === "tool:terminal") {
+                handleToggleEmbeddedTerminal()
+              } else {
+                openSidebarTab(projectId, tabId)
+              }
+            }}
+            onCloseTab={(tabId, e) => {
+              closeSidebarTab(projectId, tabId)
+            }}
           />
         )
-        : gitPanelContentProps
-          ? <ChatSidebarContent {...gitPanelContentProps} />
-          : null
+        : activeRightPanel === "workflow" && projectId
+          ? (
+            <WorkflowTrackerPanel
+              run={workflowProjection}
+              workflowDefinitions={workflowDefinitions}
+              isStartingWorkflow={isStartingWorkflow}
+              onStartWorkflow={handleStartWorkflow}
+              proposedManifest={proposedManifest || undefined}
+              onPublishWorkflow={handlePublishWorkflow}
+              onRejectWorkflow={handleRejectWorkflow}
+              onReviewDownstream={handleReviewDownstream}
+              onRepairDownstream={handleRepairDownstream}
+              onRerunArtifact={handleRerunArtifact}
+              onViewArtifact={handleViewArtifact}
+              onRegenerateArtifact={handleRegenerateArtifact}
+              onInvalidateArtifact={handleInvalidateArtifact}
+              onAcceptArtifact={handleAcceptArtifact}
+              onRerunNode={handleRerunNode}
+              onRegisterPack={handleRegisterPack}
+              onAddFlowEdge={handleAddFlowEdge}
+              onRemoveFlowEdge={handleRemoveFlowEdge}
+              onApproveFlowEdge={handleApproveFlowEdge}
+              onRejectFlowEdge={handleRejectFlowEdge}
+              onRecoverLock={handleRecoverLock}
+              densityMode={projectUiState?.workflowDensityMode ?? "normal"}
+              onDensityModeChange={(mode) => projectId && setWorkflowDensityMode(projectId, mode)}
+              onClose={handleCloseRightSidebar}
+            />
+          )
+          : gitPanelContentProps
+            ? <ChatSidebarContent {...gitPanelContentProps} />
+            : null
   const diffTotals = useMemo(() => {
     return (state.chatDiffSnapshot?.files ?? []).reduce(
       (totals, file) => ({
