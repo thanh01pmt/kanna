@@ -796,7 +796,7 @@ export function SkillsSection({
 
   if (defaultProvider === "pi") {
     const skillCount = piSkills.length
-    const tokenBloat = skillCount * 400
+    const tokenBloat = skillCount * 80
     const tokenSeverity = tokenBloat > 3000 ? "high" : tokenBloat > 1200 ? "medium" : "low"
     const severityText = tokenSeverity === "high" ? "High Context Bloat" : tokenSeverity === "medium" ? "Moderate Context Bloat" : "Optimal Context Usage"
     const severityColor = tokenSeverity === "high" ? "text-red-500 bg-red-500/10 border-red-500/20" : tokenSeverity === "medium" ? "text-amber-500 bg-amber-500/10 border-amber-500/20" : "text-emerald-500 bg-emerald-500/10 border-emerald-500/20"
@@ -929,7 +929,7 @@ export function SkillsSection({
   }
 
   const skillCount = installedSkills.length
-  const tokenBloat = skillCount * 400
+  const tokenBloat = skillCount * 80
   const tokenSeverity = tokenBloat > 3000 ? "high" : tokenBloat > 1200 ? "medium" : "low"
   const severityText = tokenSeverity === "high" ? "High Context Bloat" : tokenSeverity === "medium" ? "Moderate Context Bloat" : "Optimal Context Usage"
   const severityColor = tokenSeverity === "high" ? "text-red-500 bg-red-500/10 border-red-500/20" : tokenSeverity === "medium" ? "text-amber-500 bg-amber-500/10 border-amber-500/20" : "text-emerald-500 bg-emerald-500/10 border-emerald-500/20"
@@ -2626,7 +2626,7 @@ export function McpSection({
 
   if (defaultProvider === "pi") {
     const totalTools = Object.values(piMcpServers).reduce((acc, serverInfo: any) => acc + (serverInfo.tools?.length ?? 0), 0)
-    const tokenBloat = totalTools * 350
+    const tokenBloat = totalTools * 150
     const tokenSeverity = tokenBloat > 3000 ? "high" : tokenBloat > 1200 ? "medium" : "low"
     const severityText = tokenSeverity === "high" ? "High Context Bloat" : tokenSeverity === "medium" ? "Moderate Context Bloat" : "Optimal Context Usage"
     const severityColor = tokenSeverity === "high" ? "text-red-500 bg-red-500/10 border-red-500/20" : tokenSeverity === "medium" ? "text-amber-500 bg-amber-500/10 border-amber-500/20" : "text-emerald-500 bg-emerald-500/10 border-emerald-500/20"
@@ -2788,7 +2788,7 @@ export function McpSection({
     ? toolNames.filter((toolName) => config.tools?.["kanna-workflow"]?.[toolName] !== false).length
     : 0
   const disabledToolsCount = toolNames.length - enabledToolsCount
-  const tokenBloat = enabledToolsCount * 350
+  const tokenBloat = enabledToolsCount * 150
   const tokenSeverity = tokenBloat > 3000 ? "high" : tokenBloat > 1200 ? "medium" : "low"
   const severityText = tokenSeverity === "high" ? "High Context Bloat" : tokenSeverity === "medium" ? "Moderate Context Bloat" : "Optimal Context Usage"
   const severityColor = tokenSeverity === "high" ? "text-red-500 bg-red-500/10 border-red-500/20" : tokenSeverity === "medium" ? "text-amber-500 bg-amber-500/10 border-amber-500/20" : "text-emerald-500 bg-emerald-500/10 border-emerald-500/20"
